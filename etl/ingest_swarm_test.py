@@ -34,7 +34,7 @@ class SupabaseREST:
         for i in range(0, len(records), batch_size):
             chunk = records[i:i+batch_size]
             url = f"{self.base}/{table}?on_conflict={on_conflict}"
-            r = requests.post(url, headers=self.headers, data=json.dumps(chunk), timeout=180)
+            r = requests.post(url, headers=self.headers, data=json.dumps(chunk, default=str), timeout=180)
             if r.status_code >= 300:
                 raise RuntimeError(f"Upsert {table} failed {r.status_code}: {r.text}")
             print(f"[{table}] upserted {len(chunk)} rows")
