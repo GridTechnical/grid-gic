@@ -146,6 +146,8 @@ def main():
             print(f"[{coll}] no data for {START} → {END}")
 
     print(f"DONE. total rows inserted: {total}")
+    if total == 0:
+        raise SystemExit(2)
 
 if __name__ == "__main__":
     main()
