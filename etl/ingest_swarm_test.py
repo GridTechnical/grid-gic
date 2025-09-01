@@ -44,8 +44,7 @@ pg = SupabaseREST(SUPABASE_URL, SUPABASE_SERVICE_KEY, schema="geomag")
 # ---- Swarm fetch ----
 def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFrame:
     VIRES_URL = os.environ.get("VIRES_URL", "https://vires.services/ows")
-    req = SwarmRequest(VIRES_URL)   # pass URL explicitly
-    req.set_token(VIRES_TOKEN)
+    req = SwarmRequest(url=VIRES_URL, token=VIRES_TOKEN)
     req.set_collection(collection)  # SW_OPER_MAGA_LR_1B / MAGB / MAGC
 
     data = req.get_between(
