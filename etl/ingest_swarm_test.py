@@ -116,11 +116,8 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
 
 
     # simple |dB/dt| over 60 s window (1 Hz data)
-    def dbdt(group: pd.DataFrame) -> pd.Series:
-        diff = group[["bn_ut","be_ut","bd_ut"]].diff(60)
-        return np.sqrt((diff**2).sum(axis=1)) / 60.0
-
-    out["dbdt_utps"] = out.groupby("sat_id", group_keys=False).apply(dbdt).values
+    diff = out.groupby("sat_id")[["bn_ut","be_ut","bd_ut"]].diff(60)
+    out["dbdt_utps"] = np.sqrt((diff**2).sum(axis=1)) / 60.0
     return out.dropna(subset=["ts"])
 
 
