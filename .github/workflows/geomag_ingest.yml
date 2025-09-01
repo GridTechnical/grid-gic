@@ -25,6 +25,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
           # For first backfill, set these in "Actions → Variables" or include here as env
           START: ${{ vars.START }}
           END: ${{ vars.END }}
