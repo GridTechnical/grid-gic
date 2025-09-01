@@ -1,0 +1,73 @@
+name: Geomag Backfill (Swarm)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "UTC start (e.g. 2014-01-01T00:00:00Z)"
+        required: true
+        default: "2014-01-01T00:00:00Z"
+      end:
+        description: "UTC end (exclusive, e.g. 2014-02-01T00:00:00Z)"
+        required: true
+        default: ""
+      chunk_days:
+        description: "Days per chunk (1–7 are safe)"
+        required: true
+        default: "3"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sweep date range
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
+          START_IN: ${{ inputs.start }}
+          END_IN:   ${{ inputs.end }}
+          CHUNK:    ${{ inputs.chunk_days }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$END_IN" ]; then
+            END_IN="$(date -u -d "today 00:00" +'%Y-%m-%dT%H:%M:%SZ')"
+          fi
+
+          cur="$START_IN"
+          end="$END_IN"
+          echo "Backfill range: $cur -> $end in $CHUNK day chunks"
+
+          while [ "$(date -u -d "$cur" +%s)" -lt "$(date -u -d "$end" +%s)" ]; do
+            next=$(date -u -d "$cur +$CHUNK days" +'%Y-%m-%dT%H:%M:%SZ')
+            # clamp
+            if [ "$(date -u -d "$next" +%s)" -gt "$(date -u -d "$end" +%s)" ]; then
+              next="$end"
+            fi
+
+            echo "Ingesting: $cur -> $next"
+            set +e
+            START="$cur" END="$next" python etl/ingest_swarm_test.py
+            rc=$?
+            set -e
+            if [ $rc -ne 0 ]; then
+              echo "Chunk $cur -> $next returned rc=$rc (likely no data). Continuing…"
+            fi
+
+            cur="$next"
+          done
+
+          echo "Backfill complete."
