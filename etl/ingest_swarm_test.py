@@ -11,6 +11,8 @@ SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 START = os.environ.get("START", "2014-01-01T00:00:00Z")
 END   = os.environ.get("END",   datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z"))
+VIRES_TOKEN = os.environ["VIRES_TOKEN"]
+
 
 # ---- Simple Supabase REST helper (schema-aware) ----
 class SupabaseREST:
@@ -43,6 +45,7 @@ pg = SupabaseREST(SUPABASE_URL, SUPABASE_SERVICE_KEY, schema="geomag")
 def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFrame:
     req = SwarmRequest()
     req.set_server("https://vires.services")
+    req.set_token(VIRES_TOKEN)
     req.set_collection(collection)  # SW_OPER_MAGA_LR_1B / MAGB / MAGC
 
     data = req.get_between(
