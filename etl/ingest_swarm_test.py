@@ -8,7 +8,7 @@ import numpy as np
 from viresclient import SwarmRequest
 
 # Supabase REST (schema-aware)
-from postgrest import Client as PostgrestClient
+from postgrest import PostgrestClient
 
 # ---- Env ----
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
