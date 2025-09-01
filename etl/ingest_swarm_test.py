@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import requests
 from viresclient import SwarmRequest
+import time
 
 # ---- Env ----
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
@@ -26,18 +27,51 @@ class SupabaseREST:
             "Prefer": "resolution=merge-duplicates,return=minimal",
             "Content-Type": "application/json",
         }
+        self.session = requests.Session()
+
+    def _warm_table(self, table: str):
+        # Best-effort: hit a tiny SELECT to force PostgREST to load the schema
+        try:
+            url = f"{self.base}/{table}?select=1&limit=1"
+            self.session.get(url, headers=self.headers, timeout=15)
+        except requests.RequestException:
+            pass  # warming is best-effort
 
     def upsert(self, table: str, records: list[dict], on_conflict: str, batch_size: int = 1000):
         if not records:
             print(f"[{table}] nothing to upsert")
             return
+        self._warm_table(table)
+
         for i in range(0, len(records), batch_size):
             chunk = records[i:i+batch_size]
             url = f"{self.base}/{table}?on_conflict={on_conflict}"
-            r = requests.post(url, headers=self.headers, data=json.dumps(chunk, default=str), timeout=180)
-            if r.status_code >= 300:
-                raise RuntimeError(f"Upsert {table} failed {r.status_code}: {r.text}")
-            print(f"[{table}] upserted {len(chunk)} rows")
+
+            # retry on transient network/503 for PostgREST cache warm-up
+            for attempt in range(6):  # ~ 0s,1s,2s,4s,8s,16s
+                try:
+                    r = self.session.post(
+                        url, headers=self.headers,
+                        data=json.dumps(chunk, default=str),
+                        timeout=180
+                    )
+                except requests.RequestException as e:
+                    if attempt == 5:
+                        raise RuntimeError(f"Upsert {table} request error: {e}")
+                    time.sleep(2 ** attempt)
+                    continue
+
+                if r.status_code >= 500 or r.status_code == 503:
+                    if attempt == 5:
+                        raise RuntimeError(f"Upsert {table} failed {r.status_code}: {r.text}")
+                    time.sleep(2 ** attempt)
+                    continue
+
+                if r.status_code >= 300:
+                    raise RuntimeError(f"Upsert {table} failed {r.status_code}: {r.text}")
+
+                print(f"[{table}] upserted {len(chunk)} rows")
+                break
 
 pg = SupabaseREST(SUPABASE_URL, SUPABASE_SERVICE_KEY, schema="geomag")
 
@@ -122,15 +156,16 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
 
 
 def main():
-    # seed satellites A/B/C
+    # seed satellites A/B/C (best-effort; skip if PostgREST still warming)
     sats = pd.DataFrame([
         {"sat_id":"A","name":"Swarm Alpha","agency":"ESA"},
         {"sat_id":"B","name":"Swarm Bravo","agency":"ESA"},
         {"sat_id":"C","name":"Swarm Charlie","agency":"ESA"},
     ])
-    pg.upsert("satellites", sats.to_dict(orient="records"), on_conflict="sat_id")
-
-    total = 0
+    try:
+        pg.upsert("satellites", sats.to_dict(orient="records"), on_conflict="sat_id")
+    except Exception as e:
+        print(f"[satellites] warning: {e} (continuing)")
     for coll in ["SW_OPER_MAGA_LR_1B", "SW_OPER_MAGB_LR_1B", "SW_OPER_MAGC_LR_1B"]:
         try:
             df = fetch_swarm_l1b(coll, START, END)
