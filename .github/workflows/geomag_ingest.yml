@@ -21,13 +21,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Swarm ingest
+      - name: Run Swarm ingest (yesterday UTC)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
-          # For first backfill, set these in "Actions → Variables" or include here as env
-          START: ${{ vars.START }}
-          END: ${{ vars.END }}
         run: |
-          python etl/ingest_swarm_test.py
+          START=$(date -u -d "yesterday 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+          END=$(date -u -d "today 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+          echo "Window: $START → $END"
+          START="$START" END="$END" python etl/ingest_swarm_test.py
