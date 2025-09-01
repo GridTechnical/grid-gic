@@ -43,23 +43,30 @@ pg = SupabaseREST(SUPABASE_URL, SUPABASE_SERVICE_KEY, schema="geomag")
 
 # ---- Swarm fetch ----
 def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFrame:
+    """Fetch 1 Hz L1B NEC vectors + position for a Swarm spacecraft via VirES."""
     VIRES_URL = os.environ.get("VIRES_URL", "https://vires.services/ows")
-    req = SwarmRequest(url=VIRES_URL, token=VIRES_TOKEN)
-    req.set_collection(collection)  # SW_OPER_MAGA_LR_1B / MAGB / MAGC
+    req = SwarmRequest(url=VIRES_URL, token=os.environ["VIRES_TOKEN"])
 
-    data = req.get_between(
-        start_time=start_iso,
-        end_time=end_iso,
-        measurements=["B_NEC", "Latitude", "Longitude", "Radius", "Spacecraft"],
+    # Choose collection (A/B/C) and what fields we want
+    req.set_collection(collection)
+    req.set_products(
+        measurements=["B_NEC"],                          # vector field (nT)
+        auxiliaries=["Spacecraft", "Latitude", "Longitude", "Radius"],
+        # sampling_step="PT1S",  # optional; MAG*_LR_1B is already 1 Hz
     )
+
+    # Pull data for the window
+    data = req.get_between(start_time=start_iso, end_time=end_iso)
     df = data.as_dataframe()
     if df.empty:
         return pd.DataFrame()
 
-    # nT -> µT
-    for c in ["B_N", "B_E", "B_Z"]:
-        df[c] = df[c] / 1000.0
-    # altitude (km): radius(m) -> km minus Earth mean radius
+    # Columns from viresclient are B_NEC_N, B_NEC_E, B_NEC_C (nT) -> convert to µT
+    df["bn_ut"] = df["B_NEC_N"] / 1000.0
+    df["be_ut"] = df["B_NEC_E"] / 1000.0
+    df["bd_ut"] = df["B_NEC_C"] / 1000.0
+
+    # Altitude (km): Radius is meters from Earth center; subtract ~6371 km
     df["alt_km"] = (df["Radius"] / 1000.0) - 6371.0
 
     out = pd.DataFrame({
@@ -67,18 +74,19 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
         "sat_id": df["Spacecraft"].map({"A":"A","B":"B","C":"C"}).fillna("A"),
         "lat_deg": df["Latitude"].astype(float),
         "lon_deg": df["Longitude"].astype(float),
-        "bn_ut": df["B_N"].astype(float),
-        "be_ut": df["B_E"].astype(float),
-        "bd_ut": df["B_Z"].astype(float),
+        "bn_ut": df["bn_ut"].astype(float),
+        "be_ut": df["be_ut"].astype(float),
+        "bd_ut": df["bd_ut"].astype(float),
     }).sort_values(["sat_id","ts"])
 
-    # simple |dB/dt| over 60 s window
+    # simple |dB/dt| over 60 s window (1 Hz data)
     def dbdt(group: pd.DataFrame) -> pd.Series:
         diff = group[["bn_ut","be_ut","bd_ut"]].diff(60)
         return np.sqrt((diff**2).sum(axis=1)) / 60.0
 
     out["dbdt_utps"] = out.groupby("sat_id", group_keys=False).apply(dbdt).values
     return out.dropna(subset=["ts"])
+
 
 def main():
     # seed satellites A/B/C
