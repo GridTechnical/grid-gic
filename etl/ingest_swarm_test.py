@@ -43,40 +43,68 @@ pg = SupabaseREST(SUPABASE_URL, SUPABASE_SERVICE_KEY, schema="geomag")
 
 # ---- Swarm fetch ----
 def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFrame:
-    """Fetch 1 Hz L1B NEC vectors + position for a Swarm spacecraft via VirES."""
+    """Fetch 1 Hz L1B NEC vectors + position for a Swarm spacecraft via VirES.
+       Handles multiple possible column namings for B_NEC."""
     VIRES_URL = os.environ.get("VIRES_URL", "https://vires.services/ows")
     req = SwarmRequest(url=VIRES_URL, token=os.environ["VIRES_TOKEN"])
 
-    # Choose collection (A/B/C) and what fields we want
     req.set_collection(collection)
     req.set_products(
-        measurements=["B_NEC"],                          # vector field (nT)
+        measurements=["B_NEC"],                          # vector field
         auxiliaries=["Spacecraft", "Latitude", "Longitude", "Radius"],
-        # sampling_step="PT1S",  # optional; MAG*_LR_1B is already 1 Hz
     )
 
-    # Pull data for the window
     data = req.get_between(start_time=start_iso, end_time=end_iso)
     df = data.as_dataframe()
     if df.empty:
         return pd.DataFrame()
 
-    # Columns from viresclient are B_NEC_N, B_NEC_E, B_NEC_C (nT) -> convert to µT
-    df["bn_ut"] = df["B_NEC_N"] / 1000.0
-    df["be_ut"] = df["B_NEC_E"] / 1000.0
-    df["bd_ut"] = df["B_NEC_C"] / 1000.0
+    # --- Extract B_NEC components regardless of column naming ---
+    bn, be, bd = None, None, None
+
+    # Case 1: split columns like B_NEC_N/E/C
+    if {"B_NEC_N","B_NEC_E","B_NEC_C"}.issubset(df.columns):
+        bn = df["B_NEC_N"] / 1000.0
+        be = df["B_NEC_E"] / 1000.0
+        bd = df["B_NEC_C"] / 1000.0
+
+    # Case 2: split columns like B_NEC_X/Y/Z
+    elif {"B_NEC_X","B_NEC_Y","B_NEC_Z"}.issubset(df.columns):
+        bn = df["B_NEC_X"] / 1000.0
+        be = df["B_NEC_Y"] / 1000.0
+        bd = df["B_NEC_Z"] / 1000.0
+
+    # Case 3: indexed columns like B_NEC_0/1/2
+    elif {"B_NEC_0","B_NEC_1","B_NEC_2"}.issubset(df.columns):
+        bn = df["B_NEC_0"] / 1000.0
+        be = df["B_NEC_1"] / 1000.0
+        bd = df["B_NEC_2"] / 1000.0
+
+    # Case 4: single column "B_NEC" containing arrays
+    elif "B_NEC" in df.columns:
+        vecs = df["B_NEC"].apply(
+            lambda v: v if hasattr(v, "__len__") and len(v) == 3 else [np.nan, np.nan, np.nan]
+        )
+        vecs = pd.DataFrame(vecs.tolist(), index=df.index, columns=["N","E","C"])
+        bn = vecs["N"] / 1000.0
+        be = vecs["E"] / 1000.0
+        bd = vecs["C"] / 1000.0
+    else:
+        # If none of the above matched, show the columns we got for quick debug
+        raise KeyError(f"No recognizable B_NEC columns in DataFrame: {list(df.columns)}")
 
     # Altitude (km): Radius is meters from Earth center; subtract ~6371 km
-    df["alt_km"] = (df["Radius"] / 1000.0) - 6371.0
+    alt_km = (df["Radius"] / 1000.0) - 6371.0
 
     out = pd.DataFrame({
         "ts": pd.to_datetime(df.index).tz_convert("UTC"),
         "sat_id": df["Spacecraft"].map({"A":"A","B":"B","C":"C"}).fillna("A"),
         "lat_deg": df["Latitude"].astype(float),
         "lon_deg": df["Longitude"].astype(float),
-        "bn_ut": df["bn_ut"].astype(float),
-        "be_ut": df["be_ut"].astype(float),
-        "bd_ut": df["bd_ut"].astype(float),
+        "alt_km": alt_km.astype(float),
+        "bn_ut": bn.astype(float),
+        "be_ut": be.astype(float),
+        "bd_ut": bd.astype(float),
     }).sort_values(["sat_id","ts"])
 
     # simple |dB/dt| over 60 s window (1 Hz data)
