@@ -96,8 +96,15 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
     # Altitude (km): Radius is meters from Earth center; subtract ~6371 km
     alt_km = (df["Radius"] / 1000.0) - 6371.0
 
+    # Normalize timestamps to UTC (handle tz-naive index)
+    ts = pd.to_datetime(df.index)
+    if getattr(ts, "tz", None) is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+
     out = pd.DataFrame({
-        "ts": pd.to_datetime(df.index).tz_convert("UTC"),
+        "ts": ts,
         "sat_id": df["Spacecraft"].map({"A":"A","B":"B","C":"C"}).fillna("A"),
         "lat_deg": df["Latitude"].astype(float),
         "lon_deg": df["Longitude"].astype(float),
@@ -106,6 +113,7 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
         "be_ut": be.astype(float),
         "bd_ut": bd.astype(float),
     }).sort_values(["sat_id","ts"])
+
 
     # simple |dB/dt| over 60 s window (1 Hz data)
     def dbdt(group: pd.DataFrame) -> pd.Series:
