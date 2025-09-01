@@ -21,13 +21,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Swarm ingest (yesterday UTC)
+      - name: Run Swarm ingest (fallback up to 7 days)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
         run: |
-          START=$(date -u -d "yesterday 00:00" +'%Y-%m-%dT%H:%M:%SZ')
-          END=$(date -u -d "today 00:00" +'%Y-%m-%dT%H:%M:%SZ')
-          echo "Window: $START → $END"
-          START="$START" END="$END" python etl/ingest_swarm_test.py
+          set +e
+          for d in 1 2 3 4 5 6 7; do
+            START=$(date -u -d "$d days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+            END=$(date -u -d "$((d-1)) days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+            echo "Trying window: $START → $END"
+            START="$START" END="$END" python etl/ingest_swarm_test.py
+            rc=$?
+            if [ $rc -eq 0 ]; then
+              echo "Success: data ingested for $START → $END"
+              exit 0
+            else
+              echo "No data (exit $rc). Trying an earlier day…"
+            fi
+          done
+          echo "No Swarm data found in the last 7 days."
+          exit 1
