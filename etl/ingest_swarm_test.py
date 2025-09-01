@@ -166,6 +166,9 @@ def main():
         pg.upsert("satellites", sats.to_dict(orient="records"), on_conflict="sat_id")
     except Exception as e:
         print(f"[satellites] warning: {e} (continuing)")
+        
+    total = 0
+    
     for coll in ["SW_OPER_MAGA_LR_1B", "SW_OPER_MAGB_LR_1B", "SW_OPER_MAGC_LR_1B"]:
         try:
             df = fetch_swarm_l1b(coll, START, END)
