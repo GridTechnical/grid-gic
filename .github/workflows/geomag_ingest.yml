@@ -3,7 +3,7 @@ name: Geomag Ingest (Swarm only)
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "37 4 * * *"   # daily 04:37 UTC
+    - cron: "37 4 * * *"
 
 jobs:
   ingest:
@@ -21,46 +21,46 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Swarm ingest (fallback up to 7 days, with retries)
+      # 👇 REPLACE your old ingest step with THIS one
+      - name: Run Swarm ingest (fallback up to 10 days)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
         run: |
-          set -e
-          retry() {
-            n=0
-            until "$@"; do
-              n=$((n+1))
-              if [ $n -ge 5 ]; then
-                echo "Command failed after $n attempts: $*"
-                return 1
-              fi
-              sleep $((n*5))
-              echo "Retry #$n: $*"
-            done
-          }
-
           set +e
-          for d in 1 2 3 4 5 6 7; do
+          for d in 1 2 3 4 5 6 7 8 9 10; do
             START=$(date -u -d "$d days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
             END=$(date -u -d "$((d-1)) days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
             echo "Trying window: $START → $END"
-            retry bash -lc "START='$START' END='$END' python etl/ingest_swarm_test.py"
+            START="$START" END="$END" python etl/ingest_swarm_test.py
             rc=$?
             if [ $rc -eq 0 ]; then
               echo "Success: data ingested for $START → $END"
-              break
+              exit 0
+            elif [ $rc -eq 2 ]; then
+              echo "No data for that day; falling back a day…"
+              continue
             else
-              echo "No data or transient network error (rc=$rc). Trying an earlier day…"
+              echo "Transient error (rc=$rc). Retrying once…"
+              START="$START" END="$END" python etl/ingest_swarm_test.py
+              rc=$?
+              if [ $rc -eq 0 ]; then
+                echo "Success after retry for $START → $END"
+                exit 0
+              elif [ $rc -eq 2 ]; then
+                echo "No data; falling back a day…"
+                continue
+              else
+                echo "Hard failure (rc=$rc). Falling back a day anyway…"
+                continue
+              fi
             fi
           done
-          if [ $rc -ne 0 ]; then
-            echo "No Swarm data found in the last 7 days."
-            exit 1
-          fi
+          echo "No Swarm data found in the last 10 days."
+          exit 1
 
-      # Keep 1 Hz storage bounded (no UI/SQL editor needed)
+      # keep your retention step AFTER this
       - name: Retain only last 7 days at 1Hz (robust)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -68,7 +68,6 @@ jobs:
         run: |
           set -e
           CUTOFF=$(date -u -d "7 days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
-          echo "Deleting 1Hz rows older than: $CUTOFF"
           curl --fail -sS --retry 5 --retry-all-errors --retry-delay 5 \
             -X DELETE "$SUPABASE_URL/rest/v1/swarm_l1b?ts=lt.$CUTOFF" \
             -H "apikey: $SUPABASE_SERVICE_KEY" \
