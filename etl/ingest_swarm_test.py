@@ -4,31 +4,48 @@ from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
 
-# pip deps: supabase, viresclient, pandas, numpy, requests
-from supabase import create_client, Client
+# Data sources
 from viresclient import SwarmRequest
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
+# Supabase REST (schema-aware)
+from postgrest import Client as PostgrestClient
+
+# ---- Env ----
+SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 START = os.environ.get("START", "2014-01-01T00:00:00Z")
 END   = os.environ.get("END",   datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z"))
 
-sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+# PostgREST client targeting the geomag schema
+pg = PostgrestClient(
+    f"{SUPABASE_URL}/rest/v1",
+    headers={
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Profile": "geomag",   # write to geomag schema
+        "Accept-Profile": "geomag",    # read from geomag schema
+        "Prefer": "resolution=merge-duplicates"  # upsert behavior
+    },
+)
 
+# ---- Helpers ----
 def upsert(table: str, df: pd.DataFrame, pk_cols):
+    """Batch upsert into a table within the geomag schema."""
     if df.empty:
         print(f"[{table}] nothing to upsert")
         return
-    data = df.to_dict(orient="records")
+    records = df.to_dict(orient="records")
     BATCH = 1000
-    for i in range(0, len(data), BATCH):
-        batch = data[i:i+BATCH]
-        sb.table(f"geomag.{table}").upsert(batch, on_conflict=",".join(pk_cols)).execute()
+    for i in range(0, len(records), BATCH):
+        batch = records[i:i+BATCH]
+        pg.from_(table).upsert(batch, on_conflict=",".join(pk_cols)).execute()
         print(f"[{table}] upserted {len(batch)} rows")
 
+# ---- Swarm fetch ----
 def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFrame:
+    """Fetch 1 Hz L1B NEC vectors + position for a Swarm spacecraft."""
     req = SwarmRequest()
-    # Public VirES server (no token needed for MAG L1B LR)
+    # public VirES server
     req.set_server("https://vires.services")
     req.set_collection(collection)  # e.g., SW_OPER_MAGA_LR_1B
 
@@ -45,7 +62,7 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
     for c in ["B_N", "B_E", "B_Z"]:
         df[c] = df[c] / 1000.0
 
-    # altitude km (Radius m - Earth mean radius 6371 km)
+    # altitude (km): Radius (m) - Earth mean radius (6371 km)
     df["alt_km"] = (df["Radius"] / 1000.0) - 6371.0
 
     out = pd.DataFrame({
@@ -58,17 +75,17 @@ def fetch_swarm_l1b(collection: str, start_iso: str, end_iso: str) -> pd.DataFra
         "bd_ut": df["B_Z"].astype(float),
     }).sort_values(["sat_id","ts"])
 
-    # simple |dB/dt| over 60s window
+    # simple |dB/dt| over 60 s window per sat
     def dbdt(group: pd.DataFrame) -> pd.Series:
         diff = group[["bn_ut","be_ut","bd_ut"]].diff(60)
-        mag = np.sqrt((diff**2).sum(axis=1)) / 60.0
-        return mag
+        return np.sqrt((diff**2).sum(axis=1)) / 60.0
 
     out["dbdt_utps"] = out.groupby("sat_id", group_keys=False).apply(dbdt).values
     return out.dropna(subset=["ts"])
 
+# ---- Main ----
 def main():
-    # seed satellites
+    # seed satellites table (A/B/C)
     sats = pd.DataFrame([
         {"sat_id":"A","name":"Swarm Alpha","agency":"ESA"},
         {"sat_id":"B","name":"Swarm Bravo","agency":"ESA"},
@@ -85,8 +102,8 @@ def main():
             df = pd.DataFrame()
         if not df.empty:
             upsert("swarm_l1b", df, ["ts","sat_id"])
-            total += len(df)
             print(f"[{coll}] rows: {len(df)}")
+            total += len(df)
         else:
             print(f"[{coll}] no data for {START} → {END}")
 
