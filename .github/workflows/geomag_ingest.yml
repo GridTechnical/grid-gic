@@ -61,7 +61,7 @@ jobs:
           exit 1
 
       # keep your retention step AFTER this
-            - name: Retain only last 7 days at 1Hz (chunked + verbose)
+      - name: Retain only last 7 days at 1Hz (chunked + verbose)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
