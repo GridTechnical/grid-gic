@@ -68,7 +68,10 @@ jobs:
         run: |
           set -e
           CUTOFF=$(date -u -d "7 days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+          echo "Deleting 1Hz rows older than: $CUTOFF"
           curl --fail -sS --retry 5 --retry-all-errors --retry-delay 5 \
             -X DELETE "$SUPABASE_URL/rest/v1/swarm_l1b?ts=lt.$CUTOFF" \
             -H "apikey: $SUPABASE_SERVICE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY"
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            -H "Content-Profile: geomag" \
+            -H "Accept-Profile: geomag"
