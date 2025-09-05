@@ -61,17 +61,57 @@ jobs:
           exit 1
 
       # keep your retention step AFTER this
-      - name: Retain only last 7 days at 1Hz (robust)
+            - name: Retain only last 7 days at 1Hz (chunked + verbose)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          set -e
+          set -euo pipefail
+
           CUTOFF=$(date -u -d "7 days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
-          echo "Deleting 1Hz rows older than: $CUTOFF"
-          curl --fail -sS --retry 5 --retry-all-errors --retry-delay 5 \
-            -X DELETE "$SUPABASE_URL/rest/v1/swarm_l1b?ts=lt.$CUTOFF" \
-            -H "apikey: $SUPABASE_SERVICE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-            -H "Content-Profile: geomag" \
+          echo "Cutoff: $CUTOFF"
+
+          BASE="$SUPABASE_URL/rest/v1/swarm_l1b?ts=lt.$CUTOFF"
+          H_COMMON=(
+            -H "apikey: $SUPABASE_SERVICE_KEY"
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY"
+            -H "Content-Profile: geomag"
             -H "Accept-Profile: geomag"
+          )
+
+          # quick count (via Content-Range header)
+          echo "Counting rows older than cutoff..."
+          COUNT_HDR=$(curl -sS -i "${H_COMMON[@]}" -H "Prefer: count=exact" "$BASE&select=ts&limit=1" | tr -d '\r' | sed -n 's/^Content-Range: .*\/\([0-9]*\).*/\1/pI')
+          COUNT=${COUNT_HDR:-0}
+          echo "Rows to consider: $COUNT"
+
+          # delete in batches; PostgREST allows limit+order on DELETE
+          BATCH=50000
+          i=0
+          while : ; do
+            # stop if nothing left (defensive)
+            LEFT=$(curl -sS -i "${H_COMMON[@]}" -H "Prefer: count=exact" "$BASE&select=ts&limit=1" | tr -d '\r' | sed -n 's/^Content-Range: .*\/\([0-9]*\).*/\1/pI')
+            LEFT=${LEFT:-0}
+            echo "Remaining older-than-cutoff: $LEFT"
+            [ "$LEFT" -eq 0 ] && break
+
+            echo "DELETE batch $((++i)) (up to $BATCH rows)..."
+            # show body on error so we can see real message
+            CODE=$(curl -sS -w "%{http_code}" -o /tmp/del.out \
+              "${H_COMMON[@]}" \
+              -X DELETE "$BASE&order=ts.asc&limit=$BATCH")
+            if [ "$CODE" = "204" ]; then
+              echo "Batch $i OK (204)."
+            elif [ "$CODE" = "404" ]; then
+              echo "Endpoint/filter returned 404 (nothing to delete or schema not exposed)."
+              cat /tmp/del.out || true
+              break
+            else
+              echo "DELETE returned HTTP $CODE. Response:"
+              cat /tmp/del.out || true
+              exit 1
+            fi
+          done
+
+          echo "Retention step complete."
+
