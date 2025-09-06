@@ -1,116 +1,70 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Swarm Heatmap — Relative Intensity</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    html, body { height: 100%; margin: 0; background:#0b0f14; color:#e6edf3; font-family: ui-sans-serif,system-ui,Arial; }
-    #toolbar { padding: 10px 14px; display:flex; gap:10px; align-items:center; border-bottom: 1px solid #1f2a36; }
-    #map { height: calc(100% - 56px); }
-    select, input, button { background:#0f1620; color:#e6edf3; border:1px solid #223140; border-radius:8px; padding:6px 10px; }
-    button { cursor:pointer; }
-    .pill { padding:4px 8px; border-radius:999px; border:1px solid #223140; font-size:12px; color:#9fb3c8; }
-  </style>
-</head>
-<body>
-  <div id="toolbar">
-    <button id="download">Download CSV</button>
-    <span id="legend" class="pill">Scale: 95th-pct normalized</span>
-    <span class="pill">Swarm Heatmap</span>
-    <label>Window:
-      <select id="hours">
-        <option value="6">Last 6h</option>
-        <option value="12">Last 12h</option>
-        <option value="24" selected>Last 24h</option>
-        <option value="48">Last 48h</option>
-        <option value="168">Last 7d</option>
-      </select>
-    </label>
-    <label>Metric:
-      <select id="metric">
-        <option value="dbdt_max" selected>Max |dB/dt| per minute</option>
-        <option value="f_mean">Mean |B| per minute</option>
-      </select>
-    </label>
-    <label>Grid:
-      <select id="grid">
-        <option value="2,5" selected>2° × 5°</option>
-        <option value="1,2">1° × 2°</option>
-        <option value="4,10">4° × 10°</option>
-      </select>
-    </label>
-    <button id="refresh">Refresh</button>
-    <span id="status" style="margin-left:auto; font-size:12px; color:#9fb3c8;"></span>
-  </div>
-  <div id="map"></div>
+<script>
+  // 1) Supabase project creds (anon key only)
+  const SUPABASE_URL = "https://uajnhkmwfskddeizcpir.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVham5oa213ZnNrZGRlaXpjcGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2ODU5NzIsImV4cCI6MjA2ODI2MTk3Mn0.hNCTx5Q7rA_OgdK5xeWwJhY5FZjDwubSpcjkVI2gR0U";
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
-  <script>
-    // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    // EDIT THESE TWO LINES:
-    const SUPABASE_URL = "https://uajnhkmwfskddeizcpir.supabase.co"; // Settings → API → Project URL
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVham5oa213ZnNrZGRlaXpjcGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2ODU5NzIsImV4cCI6MjA2ODI2MTk3Mn0.hNCTx5Q7rA_OgdK5xeWwJhY5FZjDwubSpcjkVI2gR0U";            // Settings → API → anon public key
-    // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+  // 2) Client scoped to geomag schema
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "geomag" } });
 
-    // scope client to geomag schema so RPC hits correct profile
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "geomag" } });
+  // 3) Leaflet map
+  const map = L.map('map', { worldCopyJump: true, minZoom: 2 }).setView([20, 0], 2);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: "© OpenStreetMap", maxZoom: 6 }).addTo(map);
+  let heat = null;
+  let lastData = [];
 
-    // Leaflet map
-    const map = L.map('map', { worldCopyJump: true, minZoom: 2 }).setView([20, 0], 2);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: "© OpenStreetMap", maxZoom: 6 }).addTo(map);
-    let heat;
+  const statusEl = document.getElementById('status');
+  const hoursEl  = document.getElementById('hours');
+  const metricEl = document.getElementById('metric');
+  const gridEl   = document.getElementById('grid');
 
-    function isoNoMs(d){ return d.toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+  function isoNoMs(d){ return d.toISOString().replace(/\.\d{3}Z$/, 'Z'); }
 
-    async function loadHeat() {
-      const status = document.getElementById('status');
-      const hours = parseInt(document.getElementById('hours').value, 10);
-      const metric = document.getElementById('metric').value;
-      const [dlat, dlon] = document.getElementById('grid').value.split(',').map(parseFloat);
+  async function loadHeat() {
+    const hours = parseInt(hoursEl.value, 10);
+    const metric = metricEl.value;
+    const [dlat, dlon] = gridEl.value.split(',').map(parseFloat);
 
-      const end = new Date();
-      const start = new Date(end.getTime() - hours*3600*1000);
-      status.textContent = `Loading ${metric} over last ${hours}h…`;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours*3600*1000);
+    statusEl.textContent = `Loading ${metric} over last ${hours}h…`;
 
-      const { data, error } = await supabase.rpc('grid_heatmap_1m', {
-        start_ts: isoNoMs(start),
-        end_ts: isoNoMs(end),
-        dlat, dlon, metric
-      });
+    const { data, error } = await supabase.rpc('grid_heatmap_1m', {
+      start_ts: isoNoMs(start),
+      end_ts: isoNoMs(end),
+      dlat, dlon, metric
+    });
 
-      if (error) { console.error(error); status.textContent = `Error: ${error.message}`; return; }
-      if (!Array.isArray(data) || data.length === 0) {
-        status.textContent = 'No data in that window.';
-        if (heat) map.removeLayer(heat);
-        return;
-      }
-
-      // normalize 0..1 using 95th percentile to keep contrast
-      const values = data.map(r => r.value ?? 0).filter(Number.isFinite);
-      values.sort((a,b)=>a-b);
-      const p95 = values[Math.floor(0.95*values.length)] || 1;
-      const scale = v => Math.min(1, (v / (p95 || 1)));
-
-      const points = data.map(r => [r.lat_bin, r.lon_bin, scale(r.value || 0)]);
+    if (error) {
+      console.error(error);
+      statusEl.textContent = `Error: ${error.message}`;
       if (heat) map.removeLayer(heat);
-      heat = L.heatLayer(points, { radius: 18, blur: 15, maxZoom: 6 }).addTo(map);
-
-      const hits = data.reduce((s,r)=>s+(r.hits||0),0);
-      status.textContent = `${data.length} cells, ${hits} minute-bins • p95=${p95.toFixed(2)} (${metric})`;
+      lastData = [];
+      return;
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      statusEl.textContent = 'No data in that window.';
+      if (heat) map.removeLayer(heat);
+      lastData = [];
+      return;
     }
 
-    document.getElementById('refresh').addEventListener('click', loadHeat);
-    loadHeat();
-  </script>
-  <script>
-  let lastData = null;
+    // Normalize intensity to 0..1 using 95th percentile
+    const values = data.map(r => r.value ?? 0).filter(Number.isFinite).sort((a,b)=>a-b);
+    const p95 = values[Math.floor(0.95*values.length)] || 1;
+    const scale = v => Math.min(1, (v / (p95 || 1)));
 
-  async function downloadCSV() {
-    if (!lastData || !lastData.length) return alert('No data to export.');
+    const points = data.map(r => [r.lat_bin, r.lon_bin, scale(r.value || 0)]);
+    if (heat) map.removeLayer(heat);
+    heat = L.heatLayer(points, { radius: 18, blur: 15, maxZoom: 6 }).addTo(map);
+
+    const hits = data.reduce((s,r)=>s+(r.hits||0),0);
+    statusEl.textContent = `${data.length} cells, ${hits} minute-bins • p95=${p95.toFixed(2)} (${metric})`;
+
+    lastData = data; // keep for CSV download
+  }
+
+  function downloadCSV() {
+    if (!lastData.length) { alert('No data to export.'); return; }
     const rows = [['lat_bin','lon_bin','value','hits']];
     lastData.forEach(r => rows.push([r.lat_bin, r.lon_bin, r.value ?? '', r.hits ?? '']));
     const csv = rows.map(r => r.join(',')).join('\n');
@@ -120,17 +74,8 @@
     a.click(); URL.revokeObjectURL(url);
   }
 
-  // store the last RPC response
-  async function loadHeat() {
-    /* … existing code … */
-    const { data, error } = await supabase.rpc('grid_heatmap_1m', { start_ts: isoNoMs(start), end_ts: isoNoMs(end), dlat, dlon, metric });
-    /* … existing code … */
-    lastData = data; // <-- keep for CSV
-    /* … existing code … */
-  }
-
+  document.getElementById('refresh').addEventListener('click', loadHeat);
   document.getElementById('download').addEventListener('click', downloadCSV);
-</script>
 
-</body>
-</html>
+  loadHeat(); // initial render
+</script>
