@@ -1,0 +1,61 @@
+name: Geomag Backfill Range (1d ingest → rollup → purge)
+on:
+  workflow_dispatch:
+    inputs:
+      START:
+        description: 'UTC start date (YYYY-MM-DD)'
+        required: true
+      END:
+        description: 'UTC end date (YYYY-MM-DD, exclusive)'
+        required: true
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Loop days
+        shell: bash
+        run: |
+          set -euo pipefail
+          start="${{ github.event.inputs.START }}"
+          end="${{ github.event.inputs.END }}"
+          echo "Backfilling $start → $end (UTC, day-by-day)"
+          d="$start"
+          while [[ "$d" < "$end" ]]; do
+            dnext=$(date -u -d "$d + 1 day" +%Y-%m-%d)
+            echo "::group::Ingest $d"
+            START="${d}T00:00:00Z" END="${dnext}T00:00:00Z" python etl/ingest_swarm_test.py || true
+            echo "::endgroup::"
+
+            echo "::group::Rollup $d"
+            curl -sS \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "Content-Profile: geomag" -H "Accept-Profile: geomag" \
+              -H "Content-Type: application/json" \
+              -X POST "$SUPABASE_URL/rest/v1/rpc/rollup_swarm_1hz_to_1m" \
+              -d "{\"start_ts\":\"${d}T00:00:00Z\",\"end_ts\":\"${dnext}T00:00:00Z\"}" | jq . || true
+            echo "::endgroup::"
+
+            echo "::group::Purge 1Hz $d"
+            curl -sS \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "Content-Profile: geomag" \
+              -H "Prefer: count=exact" \
+              -X DELETE "$SUPABASE_URL/rest/v1/swarm_l1b?ts=gte.${d}T00:00:00Z&ts=lt.${dnext}T00:00:00Z" \
+              | jq . || true
+            echo "::endgroup::"
+
+            d="$dnext"
+          done
