@@ -16,6 +16,8 @@
 </head>
 <body>
   <div id="toolbar">
+    <button id="download">Download CSV</button>
+    <span id="legend" class="pill">Scale: 95th-pct normalized</span>
     <span class="pill">Swarm Heatmap</span>
     <label>Window:
       <select id="hours">
@@ -74,7 +76,7 @@
       const start = new Date(end.getTime() - hours*3600*1000);
       status.textContent = `Loading ${metric} over last ${hours}h…`;
 
-      const { data, error } = await supabase.rpc('grid_heatmap', {
+      const { data, error } = await supabase.rpc('grid_heatmap_1m', {
         start_ts: isoNoMs(start),
         end_ts: isoNoMs(end),
         dlat, dlon, metric
@@ -104,5 +106,31 @@
     document.getElementById('refresh').addEventListener('click', loadHeat);
     loadHeat();
   </script>
+  <script>
+  let lastData = null;
+
+  async function downloadCSV() {
+    if (!lastData || !lastData.length) return alert('No data to export.');
+    const rows = [['lat_bin','lon_bin','value','hits']];
+    lastData.forEach(r => rows.push([r.lat_bin, r.lon_bin, r.value ?? '', r.hits ?? '']));
+    const csv = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'heatmap.csv' });
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  // store the last RPC response
+  async function loadHeat() {
+    /* … existing code … */
+    const { data, error } = await supabase.rpc('grid_heatmap_1m', { start_ts: isoNoMs(start), end_ts: isoNoMs(end), dlat, dlon, metric });
+    /* … existing code … */
+    lastData = data; // <-- keep for CSV
+    /* … existing code … */
+  }
+
+  document.getElementById('download').addEventListener('click', downloadCSV);
+</script>
+
 </body>
 </html>
