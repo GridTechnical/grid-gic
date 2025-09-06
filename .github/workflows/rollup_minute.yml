@@ -1,0 +1,20 @@
+name: Rollup minute aggregates (daily)
+on:
+  schedule: [ { cron: "10 06 * * *" } ]   # 06:10 UTC daily
+  workflow_dispatch: {}
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call rollup_yesterday RPC
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          curl -sS \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            -H "Content-Profile: geomag" -H "Accept-Profile: geomag" \
+            -H "Content-Type: application/json" \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/rollup_yesterday" \
+          | jq .
