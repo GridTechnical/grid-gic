@@ -5,4 +5,6 @@ supabase
 viresclient
 cdflib
 postgrest
+pandas>=2.2
 supabase>=2.4
+hapiclient>=0.2.6
