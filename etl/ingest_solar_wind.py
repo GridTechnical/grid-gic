@@ -4,7 +4,8 @@ import os, sys, json, time, datetime as dt, requests
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 SOURCE_URL = os.environ.get("SWPC_SOLARWIND_URL", "https://services.swpc.noaa.gov/products/summary/solar-wind.json")
-
+SOURCE_URL = os.environ.get("SWPC_SOLARWIND_URL") or \
+             "https://services.swpc.noaa.gov/products/summary/solar-wind.json"
 def upsert(rows):
     if not rows: return
     url = f"{SUPABASE_URL}/rest/v1/solar_wind_5m?on_conflict=utc_ts"
