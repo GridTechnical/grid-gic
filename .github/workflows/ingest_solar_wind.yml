@@ -4,6 +4,10 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: write   # needed to push the update branch and open PR
+  pull-requests: write
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
@@ -19,10 +23,11 @@ jobs:
           pip install -r requirements.txt
           python etl/ingest_solar_wind.py
 
-      - name: Commit & push data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/solar_wind_last6h.*
-          git commit -m "Update solar wind data" || echo "No changes"
-          git push
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Update solar wind data"
+          title: "Update solar wind data"
+          branch: data-update/solar-wind
+          add-paths: |
+            docs/data/solar_wind_last6h.*
