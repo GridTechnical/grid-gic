@@ -5,3 +5,4 @@ supabase
 viresclient
 cdflib
 postgrest
+supabase>=2.4
