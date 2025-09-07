@@ -83,22 +83,30 @@ def _compute_derived(plasma: pd.DataFrame, mag: pd.DataFrame) -> pd.DataFrame:
             ]
     return df
 
-def fetch_solar_wind_merged(start: dt.datetime, end: dt.datetime, : Optional[str] = "1min", ffill_limit: int = 5) -> pd.DataFrame:
-    if start.tzinfo is None: start = start.replace(tzinfo=dt.timezone.utc)
-    if end.tzinfo is None:   end   = end.replace(tzinfo=dt.timezone.utc)
-    if end <= start: raise ValueError("end must be after start")
+def fetch_solar_wind_merged(
+    start: dt.datetime,
+    end: dt.datetime,
+    resample: Optional[str] = "1min",
+    ffill_limit: int = 5,
+) -> pd.DataFrame:
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=dt.timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=dt.timezone.utc)
+    if end <= start:
+        raise ValueError("end must be after start")
     if (end - start) > dt.timedelta(days=7):
         raise ValueError("Range > 7 days; use archive fallback for longer windows.")
 
     window = _pick_window(end - start)
     plasma = _fetch_json_table(PLASMA_FEEDS[window])
-    mag    = _fetch_json_table(MAG_FEEDS[window])
+    mag = _fetch_json_table(MAG_FEEDS[window])
 
     plasma = plasma.loc[(plasma.index >= start) & (plasma.index <= end)]
-    mag    = mag.loc[(mag.index >= start) & (mag.index <= end)]
+    mag = mag.loc[(mag.index >= start) & (mag.index <= end)]
     merged = _compute_derived(plasma, mag)
 
-    import pandas as pd
+    # ensure numeric before resampling
     merged = merged.apply(pd.to_numeric, errors="coerce")
 
     if resample:
