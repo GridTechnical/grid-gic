@@ -1,0 +1,20 @@
+name: Ingest solar wind (5 min)
+on:
+  schedule: [ { cron: "*/10 * * * *" } ]   # every 10 minutes
+  workflow_dispatch: {}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SWPC_SOLARWIND_URL: ${{ secrets.SWPC_SOLARWIND_URL }}  # optional override
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python etl/ingest_solar_wind.py
