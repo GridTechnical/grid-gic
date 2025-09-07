@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8">
+<title>GIC Watch — Top Cells</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<div style="padding:8px;display:flex;gap:8px;align-items:center">
+  <span style="padding:4px 8px;border:1px solid #223140;border-radius:999px;color:#9fb3c8">GIC Watch</span>
+  <label>Start <input id="s" type="date"></label>
+  <label>End <input id="e" type="date"></label>
+  <label>Grid
+    <select id="g"><option>2,5</option><option>4,10</option><option>1,2</option></select>
+  </label>
+  <label>Min hits <input id="h" type="number" value="10" style="width:70px"></label>
+  <button id="go">Apply</button>
+  <span id="st" style="margin-left:auto;color:#9fb3c8"></span>
+</div>
+<div id="map" style="height: calc(100vh - 48px)"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.5/dist/umd/supabase.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+const supa = supabase.createClient("https://uajnhkmwfskddeizcpir.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVham5oa213ZnNrZGRlaXpjcGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2ODU5NzIsImV4cCI6MjA2ODI2MTk3Mn0.hNCTx5Q7rA_OgdK5xeWwJhY5FZjDwubSpcjkVI2gR0U",
+  { db:{ schema:"watch" } });
+const m = L.map('map',{worldCopyJump:true,minZoom:2}).setView([20,0],2);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:6}).addTo(m);
+let heat=null;
+function dToISO(d){return d.toISOString().slice(0,10)}
+(function init(){
+  const end=new Date(), start=new Date(end.getTime()-48*3600*1000);
+  e.value=dToISO(end); s.value=dToISO(start);
+})();
+function toUTC(d){ const [y,m,dd]=d.split('-').map(Number); return new Date(Date.UTC(y,m-1,dd)).toISOString().replace(/\.\d{3}Z$/,'Z') }
+async function run(){
+  const st=document.getElementById('st'); st.textContent='Loading…';
+  const dlatdlon=document.getElementById('g').value.split(',').map(Number);
+  const minHits=parseInt(document.getElementById('h').value||'5',10);
+  const start=toUTC(s.value), endISO=new Date(Date.parse(toUTC(e.value))+24*3600*1000).toISOString().replace(/\.\d{3}Z$/,'Z');
+  const { data, error } = await supa.rpc('risk_cells',{ start_ts:start, end_ts:endISO, dlat:dlatdlon[0], dlon:dlatdlon[1], min_hits:minHits });
+  if (error){ st.textContent='Error: '+error.message; return; }
+  if (!data?.length){ st.textContent='No rows'; if(heat) m.removeLayer(heat); return; }
+  const vals=data.map(r=>r.local_ratio||0).filter(Number.isFinite).sort((a,b)=>a-b);
+  const p95=vals[Math.floor(0.95*vals.length)]||1; const sc=v=>Math.min(1,(v||0)/(p95||1));
+  const pts=data.map(r=>[r.lat_bin,r.lon_bin,sc(r.local_ratio)]);
+  if(heat) m.removeLayer(heat); heat=L.heatLayer(pts,{radius:18,blur:15,maxZoom:6}).addTo(m);
+  st.textContent=`${data.length} cells • p95(local_ratio)=${p95.toFixed(2)} • min Bz=${(data[0].bz_min_nt??NaN).toFixed?data[0].bz_min_nt.toFixed(1):'NA'} nT`;
+}
+document.getElementById('go').addEventListener('click', run); run();
+</script>
