@@ -6,14 +6,14 @@ from typing import Optional
 from hapiclient import hapi
 
 HAPI_SERVER = "https://cdaweb.gsfc.nasa.gov/hapi"
-DATASET = "OMNI_HRO2_1MIN"  # correct current dataset
+DATASET = "OMNI_HRO_1MIN"  # Correct working dataset ID for high-res OMNI in CDAWeb HAPI
 
-# Correct parameter names: lowercase as used in OMNI_HRO2_1MIN
+# Parameters as uppercase for IMF (standard in OMNI_HRO_1MIN)
 PARAMS_LIST = [
-    "Bx_GSM",               # bx_gsm
-    "By_GSM",               # by_gsm
-    "Bz_GSM",               # bz_gsm
-    "Bt",                   # bt
+    "BX_GSM",               # bx_gsm
+    "BY_GSM",               # by_gsm
+    "BZ_GSM",               # bz_gsm
+    "BT",                   # bt
     "flow_speed",           # speed
     "proton_density",       # density
     "proton_temperature",   # temperature
@@ -24,34 +24,31 @@ PARAMS = ",".join(PARAMS_LIST)
 def _to_df(data, meta) -> pd.DataFrame:
     df = pd.DataFrame(data)
     
-    # Handle time column (HAPI usually returns 'time' in seconds since epoch)
+    # Time handling
     time_col = "time" if "time" in df.columns else "Time"
     if time_col in df.columns:
         df[time_col] = pd.to_datetime(df[time_col].astype(float), unit="s", utc=True, errors="coerce")
         df = df.dropna(subset=[time_col]).set_index(time_col).sort_index()
     
-    # Print received columns for debugging
     print(f"Received columns from HAPI: {list(df.columns)}")
     
-    # Rename to match your expected schema (case-insensitive fallback)
     rename = {
-        "Bx_GSM": "bx_gsm",
-        "By_GSM": "by_gsm",
-        "Bz_GSM": "bz_gsm",
-        "BT": "bt", "Bt": "bt",
-        "flow_speed": "speed", "Flow_speed": "speed",
-        "proton_density": "density", "Proton_density": "density",
-        "proton_temperature": "temperature", "Proton_temperature": "temperature",
+        "BX_GSM": "bx_gsm",
+        "BY_GSM": "by_gsm",
+        "BZ_GSM": "bz_gsm",
+        "BT": "bt",
+        "flow_speed": "speed",
+        "proton_density": "density",
+        "proton_temperature": "temperature",
         "Pressure": "pdyn_npa",
     }
     df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
     
-    # Coerce to numeric
     for c in df.columns:
         if c != time_col:
             df[c] = pd.to_numeric(df[c], errors="coerce")
     
-    # Derived columns (same logic as before, but safer)
+    # Derived fields
     if "density" in df.columns and "speed" in df.columns:
         df["pdyn_npa"] = 1.6726e-6 * df["density"] * (df["speed"] ** 2)
     
@@ -75,7 +72,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     print(f"Range: {start_iso} → {end_iso}")
     
     try:
-        # Debug: show what parameters are actually available
+        # Debug: list available params
         param_info = hapi(HAPI_SERVER, "parameters", DATASET)
         available = [p["name"] for p in param_info["parameters"]]
         print(f"Available parameters in {DATASET}: {available}")
@@ -84,7 +81,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         df = _to_df(data, meta)
         
         if df.empty:
-            print("Warning: No data returned for the requested range.")
+            print("Warning: No data returned.")
         
         if resample:
             df = df.resample(resample).mean(numeric_only=True).ffill(limit=5)
@@ -96,5 +93,5 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
             f"HAPI query failed: {str(e)}\n"
             f"Dataset: {DATASET}\n"
             f"Requested params: {PARAMS}\n"
-            f"Check the printed available parameters and adjust PARAMS_LIST accordingly."
+            f"Check printed available parameters above."
         )
