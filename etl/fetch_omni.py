@@ -3,11 +3,6 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, timedelta# etl/fetch_omni.py
-from __future__ import annotations
-import pandas as pd
-import numpy as np
-import requests
 from datetime import datetime, timedelta
 from typing import Optional
 from io import StringIO
