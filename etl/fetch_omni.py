@@ -2,24 +2,24 @@
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from io import StringIO
 
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
     print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
-    # Parse and clean dates
-    start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-    end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+  # Parse and clean dates
+start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
 
-    # Clamp end date (OMNI lags ~3-6 months)
-    today = datetime.utcnow()
-    safe_end = min(end_dt, today - timedelta(days=120))
-    if safe_end < start_dt:
-        raise ValueError("Clamped end date before start — no data possible.")
+# OMNI high-res lags ~3-6 months; clamp end to today - 120 days (UTC aware)
+today = datetime.now(timezone.utc)
+safe_end = min(end_dt, today - timedelta(days=120))
+if safe_end < start_dt:
+    raise ValueError("Clamped end date is before start — no data possible.")
 
-    print(f"Using clamped end date: {safe_end.date()}")
+print(f"Using clamped end date: {safe_end.date()} (UTC)")
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
