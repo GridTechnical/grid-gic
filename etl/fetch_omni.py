@@ -1,4 +1,3 @@
-# etl/fetch_omni.py
 import pandas as pd
 import numpy as np
 import requests
@@ -9,17 +8,17 @@ from io import StringIO
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
     print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
-  # Parse and clean dates
-start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    # Parse and clean dates
+    start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
 
-# OMNI high-res lags ~3-6 months; clamp end to today - 120 days (UTC aware)
-today = datetime.now(timezone.utc)
-safe_end = min(end_dt, today - timedelta(days=120))
-if safe_end < start_dt:
-    raise ValueError("Clamped end date is before start — no data possible.")
+    # OMNI high-res lags ~3-6 months; clamp end to today - 120 days (UTC aware)
+    today = datetime.now(timezone.utc)
+    safe_end = min(end_dt, today - timedelta(days=120))
+    if safe_end < start_dt:
+        raise ValueError("Clamped end date is before start — no data possible.")
 
-print(f"Using clamped end date: {safe_end.date()} (UTC)")
+    print(f"Using clamped end date: {safe_end.date()} (UTC)")
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
@@ -60,7 +59,8 @@ print(f"Using clamped end date: {safe_end.date()} (UTC)")
     lines = text.splitlines()
     data_start = None
     for i, line in enumerate(lines):
-        if line.strip().startswith('YEAR') or (line.strip() and line.strip()[0].isdigit() and len(line.split()) >= 8):
+        stripped = line.strip()
+        if stripped.startswith('YEAR') or (stripped and stripped[0].isdigit() and len(stripped.split()) >= 8):
             data_start = i
             break
 
