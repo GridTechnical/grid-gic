@@ -24,14 +24,27 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
         print("No data to upsert — skipping.")
         return
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    # Clean inf/-inf to None
+    
+    # Clean inf/-inf to None (SQL NULL)
     df = df.replace([np.inf, -np.inf], None)
-    # Replace NaN with None (JSON null)
+    
+    # Drop rows where critical columns are NaN — time is now a column
+    critical_cols = ['time', 'density', 'speed', 'bz_gsm']
+    df = df.dropna(subset=critical_cols)
+    
+    # FIX: Convert time to ISO string BEFORE to_dict (fixes Timestamp JSON error)
+    if 'time' in df.columns and pd.api.types.is_datetime64_any_dtype(df['time']):
+        df['time'] = df['time'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    
+    # Replace NaN with None for JSON (safe, but optional since supabase-py handles NaN as NULL)
     df = df.replace({np.nan: None})
-    # Optional: drop fully empty rows
+    
+    # Optional: drop fully empty rows (all columns NaN)
     df = df.dropna(how="all")
+    
     records = df.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
+    
     for i in range(0, len(records), chunk):
         chunk_records = records[i:i+chunk]
         try:
@@ -42,8 +55,8 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
             print(f"Upsert chunk {i//chunk + 1} failed: {e}")
             print("First record in chunk:", chunk_records[0] if chunk_records else "Empty")
             raise
+    
     print(f"Backfilled {len(records)} rows")
-
 def main():
     # Inputs via env (YYYY-MM-DD or full ISO). Defaults to previous UTC day.
     start_env = os.getenv("START_ISO")
