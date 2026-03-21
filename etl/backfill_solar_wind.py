@@ -51,31 +51,33 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
 def main():
     # Inputs via env (YYYY-MM-DD or full ISO). Defaults to previous UTC day.
     start_env = os.getenv("START_ISO")
-    end_env   = os.getenv("END_ISO")
+    end_env = os.getenv("END_ISO")
     if start_env and end_env:
         start_iso, end_iso = start_env, end_env
     else:
         utc_today = dt.datetime.utcnow().date()
         start_iso = f"{utc_today - dt.timedelta(days=1)}T00:00:00Z"
-        end_iso   = f"{utc_today}T00:00:00Z"
+        end_iso = f"{utc_today}T00:00:00Z"
 
+    print(f"Backfill range: {start_iso} → {end_iso}")
+
+    # Fetch data first
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
-   # Quick check for inf/NaN issues
-if np.any(np.isinf(df.select_dtypes(include=[np.number]))):
-    print("Warning: inf values detected — replacing with None")
-    df = df.replace([np.inf, -np.inf], None)
+    print(f"Fetched raw DF shape: {df.shape}")
 
-keep = [
-    "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
-    "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
-]
-existing = [c for c in keep if c in df.columns]
-df_out = df[existing].dropna(how="all")  # drop fully empty rows
+    # Quick check for inf/NaN issues **after** fetch
+    if np.any(np.isinf(df.select_dtypes(include=[np.number]))):
+        print("Warning: inf values detected — replacing with None")
+        df = df.replace([np.inf, -np.inf], None)
 
-if df_out.empty:
-    print("No valid data after cleaning — skipping upsert")
-else:
-    upsert_dataframe("solar_wind_minute", df_out)
+    keep = [
+        "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
+        "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
+    ]
+    existing = [c for c in keep if c in df.columns]
+    df_out = df[existing].dropna(how="all")  # drop fully empty rows
 
-if __name__ == "__main__":
-    main()
+    if df_out.empty:
+        print("No valid data after cleaning — skipping upsert")
+    else:
+        upsert_dataframe("solar_wind_minute", df_out)
