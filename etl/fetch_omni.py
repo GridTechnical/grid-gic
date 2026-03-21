@@ -54,23 +54,25 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the first line starting with a 4-digit year (real data row)
+    # Find first line starting with 4-digit year (first real data row)
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped and stripped[0].isdigit() and len(stripped.split()) >= 5 and stripped.split()[0].isdigit() and len(stripped.split()[0]) == 4:
-            data_start = i
-            break
+        if stripped and stripped[0].isdigit() and len(stripped.split()) >= 5:
+            year_part = stripped.split()[0]
+            if year_part.isdigit() and len(year_part) == 4 and year_part.startswith('20'):
+                data_start = i
+                break
 
     if data_start is None:
-        print("No data lines found. Full response excerpt:")
+        print("No data rows found. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data lines detected. Likely parsing issue or no coverage.")
+        raise RuntimeError("No data rows detected. Likely parsing issue or no coverage.")
 
-    # Take only from the first data row onward (skips header and footer)
+    # Take from first data row to end
     data_text = '\n'.join(lines[data_start:])
 
-    # Read CSV - use skiprows=0 since we already trimmed
+    # Read CSV from the trimmed text
     df = pd.read_csv(
         StringIO(data_text),
         sep=r"\s+",
