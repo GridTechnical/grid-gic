@@ -68,6 +68,10 @@ def main():
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
     print(f"Fetched raw DF shape: {df.shape}")
 
+    # Make time a column for dropna and payload
+    df = df.reset_index()  # <--- THIS FIXES THE KeyError
+    print(f"DF shape after reset_index: {df.shape}")
+
     # Quick check for inf/NaN issues **after** fetch
     if np.any(np.isinf(df.select_dtypes(include=[np.number]))):
         print("Warning: inf values detected — replacing with None")
