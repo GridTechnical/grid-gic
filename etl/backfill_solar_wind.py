@@ -26,18 +26,13 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     # Clean inf/-inf to None (SQL NULL)
     df = df.replace([np.inf, -np.inf], None)
-    # Drop rows where critical columns are NaN — time is not included (it's required and not NaN)
-    critical_cols = ['density', 'speed', 'bz_gsm']  # removed 'time'
+    # Drop rows where critical columns are NaN — time is now a column
+    critical_cols = ['time', 'density', 'speed', 'bz_gsm']  # time is included
     df = df.dropna(subset=critical_cols)
-    # Convert time index to string ISO for JSON
-    payload = df.copy()
-    if not isinstance(payload.index, pd.DatetimeIndex):
-        raise ValueError("index must be DatetimeIndex")
-    payload.index = payload.index.tz_convert("UTC") if payload.index.tz is not None else payload.index.tz_localize("UTC")
-    payload.insert(0, "time", payload.index.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    # No need to convert index — time is already a column
     # Replace any remaining NaN with None for JSON
-    payload = payload.where(pd.notna(payload), None)
-    records = payload.reset_index(drop=True).to_dict(orient="records")
+    df = df.where(pd.notna(df), None)
+    records = df.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     for i in range(0, len(records), chunk):
         chunk_records = records[i:i+chunk]
@@ -87,6 +82,7 @@ def main():
     if df_out.empty:
         print("No valid data after cleaning — skipping upsert")
     else:
+        print("About to upsert data...")
         upsert_dataframe("solar_wind_minute", df_out)
 
 if __name__ == "__main__":
