@@ -59,18 +59,22 @@ def main():
         end_iso   = f"{utc_today}T00:00:00Z"
 
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
-    keep = [
-        "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
-        "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
-    ]
-    existing = [c for c in keep if c in df.columns]
-    df_out = df[existing].dropna(how="all")
+   # Quick check for inf/NaN issues
+if np.any(np.isinf(df.select_dtypes(include=[np.number]))):
+    print("Warning: inf values detected — replacing with None")
+    df = df.replace([np.inf, -np.inf], None)
 
-    if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY")):
-        raise RuntimeError("Missing Supabase creds")
+keep = [
+    "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
+    "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
+]
+existing = [c for c in keep if c in df.columns]
+df_out = df[existing].dropna(how="all")  # drop fully empty rows
 
+if df_out.empty:
+    print("No valid data after cleaning — skipping upsert")
+else:
     upsert_dataframe("solar_wind_minute", df_out)
-    print(f"Backfilled {len(df_out)} rows {start_iso} -> {end_iso}")
 
 if __name__ == "__main__":
     main()
