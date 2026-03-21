@@ -32,14 +32,13 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     records = df.to_dict(orient="records")
     # Print the first 3 records (or adjust the number)
    
-    print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
+    
     
     for i in range(0, len(records), chunk):
         chunk_records = records[i:i+chunk]
         try:
             response = sb.table(table).upsert(chunk_records, on_conflict="time").execute()
-            print(f"Upsert chunk {i//chunk + 1} succeeded - inserted/updated {len(response.data)} rows")
-            print(f"First record response example: {response.data[0] if response.data else 'No rows returned'}")
+           
         except Exception as e:
             print(f"Upsert chunk {i//chunk + 1} failed: {e}")
             print("First record in chunk:", chunk_records[0] if chunk_records else "Empty")
