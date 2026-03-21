@@ -26,15 +26,10 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     # Clean inf/-inf to None
     df = df.replace([np.inf, -np.inf], None)
-    # Drop fully empty rows only
+    # Replace NaN with None (JSON null)
+    df = df.replace({np.nan: None})
+    # Optional: drop fully empty rows
     df = df.dropna(how="all")
-    # Convert time to ISO string (fixes Timestamp JSON error)
-    if 'time' in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df['time']):
-            df['time'] = df['time'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-        # Ensure it's string (in case already converted)
-        df['time'] = df['time'].astype(str)
-    # NaN becomes NULL automatically
     records = df.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     for i in range(0, len(records), chunk):
