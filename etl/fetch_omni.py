@@ -8,11 +8,9 @@ from io import StringIO
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
     print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
-    # Parse and clean dates
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
 
-    # OMNI high-res lags ~3-6 months; clamp end to today - 120 days (UTC aware)
     today = datetime.now(timezone.utc)
     safe_end = min(end_dt, today - timedelta(days=120))
     if safe_end < start_dt:
@@ -22,20 +20,17 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # Exact payload from working OMNIWeb examples
+    # MINIMAL payload — only required for activity=list mode
     payload = {
         'activity': 'list',
-        'res': 'min',                       # must be 'min'
+        'res': 'min',
         'spacecraft': 'omni_min',
         'start_date': start_dt.strftime('%Y%m%d'),
         'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25',  # no spaces! comma-separated only
-        'scale': 'Linear',
-        'view': '0',
-        'table': '0',
+        'vars': '13,14,17,18,19,23,24,25'  # Bx, By, Bz, Bt, V, Np, T, P
     }
 
-    print("Sending payload:", payload)  # Debug: see exactly what is sent
+    print("Sending payload:", payload)
 
     try:
         r = requests.post(url, data=payload, timeout=90)
@@ -46,16 +41,13 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     except requests.RequestException as e:
         raise RuntimeError(f"Request failed: {e}")
 
-    # Detect error page early
+    # Detect error early
     if '<H1> Error</H1>' in text or 'Wrong value' in text:
-        print("Server returned error page. Full response excerpt:")
+        print("Server error page. Full excerpt:")
         print(text[:2000])
-        raise RuntimeError(
-            "OMNIWeb returned error (likely invalid params or no coverage).\n"
-            "Check printed payload and response above. Try shorter/earlier range."
-        )
+        raise RuntimeError("OMNIWeb rejected request. Likely bad param or no data coverage. See response above.")
 
-    # Find data block
+    # Find data start
     lines = text.splitlines()
     data_start = None
     for i, line in enumerate(lines):
@@ -67,9 +59,9 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     if data_start is None:
         print("No data block. Full response:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely no coverage for range or param issue.")
+        raise RuntimeError("No data block found. Likely no coverage for range or server issue.")
 
-    # Parse
+    # Parse data
     data_text = '\n'.join(lines[data_start:])
     df = pd.read_csv(
         StringIO(data_text),
@@ -83,7 +75,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         on_bad_lines='skip'
     )
 
-    # Time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
@@ -93,7 +84,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
-    # Derived
+    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
