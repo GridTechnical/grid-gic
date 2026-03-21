@@ -6,7 +6,7 @@ from typing import Optional
 from io import StringIO
 
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
-    print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
+    print(f"Fetching OMNI via OMNIWeb form endpoint: {start_iso} → {end_iso}")
 
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
@@ -18,21 +18,23 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     print(f"Using clamped end date: {safe_end.date()} (UTC)")
 
-    url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
+    url = "https://omniweb.gsfc.nasa.gov/form/omni_min.html"
 
+    # Mimic browser form POST (this is how the web form submits)
     payload = {
-        'activity': 'list',
         'res': 'min',
-        'spacecraft': 'omni_min',
         'start_date': start_dt.strftime('%Y%m%d'),
         'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25'
+        'vars': '13,14,17,18,19,23,24,25',  # comma-separated works here
+        'format': 'ascii',
+        'activity': 'retrieve',
+        'submit': 'Submit'
     }
 
     print("Sending payload:", payload)
 
     try:
-        r = requests.post(url, data=payload, timeout=90)
+        r = requests.post(url, data=payload, timeout=120)
         r.raise_for_status()
         text = r.text.strip()
         print(f"Response length: {len(text)} chars")
@@ -47,29 +49,24 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the header line containing 'YYYY DOY HR MN'
+    # Find the data table start: look for the header or first data row
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
         if 'YYYY DOY HR MN' in stripped:
-            data_start = i + 1  # Start from the line AFTER the header
+            data_start = i + 1
             break
-
-    if data_start is None:
-        # Fallback: look for first line starting with 4-digit year
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:
-                data_start = i
-                break
+        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:
+            data_start = i
+            break
 
     if data_start is None:
         print("No data block detected. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely parsing issue or no coverage.")
+        raise RuntimeError("No data block found. Likely no coverage or parsing issue.")
 
-    # Skip any blank or non-data lines after header
-    while data_start < len(lines) and not lines[data_start].strip().split():
+    # Skip header lines
+    while data_start < len(lines) and not lines[data_start].strip().split()[0].isdigit():
         data_start += 1
 
     data_text = '\n'.join(lines[data_start:])
