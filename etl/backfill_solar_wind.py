@@ -24,16 +24,10 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
         print("No data to upsert — skipping.")
         return
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    # Clean inf/-inf to None (SQL NULL)
+    # Clean inf/-inf to None (SQL NULL) — pandas sends NaN as NULL
     df = df.replace([np.inf, -np.inf], None)
-    # Drop rows where critical columns are NaN — time is now a column
-    critical_cols = ['time', 'density', 'speed', 'bz_gsm']  # time is included
-    df = df.dropna(subset=critical_cols)
-    # Convert time to ISO string (fix Timestamp JSON error)
-    if pd.api.types.is_datetime64_any_dtype(df['time']):
-        df['time'] = df['time'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-    # Replace any remaining NaN with None for JSON
-    df = df.where(pd.notna(df), None)
+    # Optional: drop fully empty rows only (all columns NaN)
+    df = df.dropna(how="all")
     records = df.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     for i in range(0, len(records), chunk):
@@ -65,11 +59,11 @@ def main():
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
     print(f"Fetched raw DF shape: {df.shape}")
 
-    # Make time a column for cleaning and payload
+    # Make time a column for payload
     df = df.reset_index()  # time becomes a column
     print(f"DF shape after reset_index: {df.shape}")
 
-    # Quick check for inf/NaN issues **after** fetch
+    # Clean inf only (allow NaN in some columns)
     if np.any(np.isinf(df.select_dtypes(include=[np.number]))):
         print("Warning: inf values detected — replacing with None")
         df = df.replace([np.inf, -np.inf], None)
@@ -79,9 +73,7 @@ def main():
         "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
     ]
     existing = [c for c in keep if c in df.columns]
-    df_out = df[existing]  # NO dropna(how="all") — allow partial rows
-    # Replace any remaining NaN with None explicitly
-    df_out = df_out.where(pd.notna(df_out), None)
+    df_out = df[existing]  # Keep all rows, allow partial NaN
 
     print(f"DF_out shape before upsert: {df_out.shape}")
     if df_out.empty:
