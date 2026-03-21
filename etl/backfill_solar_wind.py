@@ -26,8 +26,8 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     # Clean inf/-inf to None (SQL NULL)
     df = df.replace([np.inf, -np.inf], None)
-    # Optional: drop rows where critical columns are NaN
-    critical_cols = ['time', 'density', 'speed', 'bz_gsm']  # adjust as needed
+    # Drop rows where critical columns are NaN — time is not included (it's required and not NaN)
+    critical_cols = ['density', 'speed', 'bz_gsm']  # removed 'time'
     df = df.dropna(subset=critical_cols)
     # Convert time index to string ISO for JSON
     payload = df.copy()
@@ -68,8 +68,8 @@ def main():
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
     print(f"Fetched raw DF shape: {df.shape}")
 
-    # Make time a column for dropna and payload
-    df = df.reset_index()  # <--- THIS FIXES THE KeyError
+    # Make time a column for cleaning and payload
+    df = df.reset_index()  # time becomes a column
     print(f"DF shape after reset_index: {df.shape}")
 
     # Quick check for inf/NaN issues **after** fetch
@@ -78,7 +78,7 @@ def main():
         df = df.replace([np.inf, -np.inf], None)
 
     keep = [
-        "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
+        "time", "density","speed","temperature","bx_gsm","by_gsm","bz_gsm","bt",
         "pdyn_npa","bz_south","vbz","clock_angle_rad","newell_proxy"
     ]
     existing = [c for c in keep if c in df.columns]
