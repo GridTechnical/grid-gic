@@ -6,7 +6,7 @@ from typing import Optional
 from io import StringIO
 
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
-    print(f"Fetching OMNI via OMNIWeb form mimic: {start_iso} → {end_iso}")
+    print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
@@ -18,23 +18,21 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     print(f"Using clamped end date: {safe_end.date()} (UTC)")
 
-    url = "https://omniweb.gsfc.nasa.gov/form/omni_min.html"
+    url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # Mimic the form POST - use GET params style but POST for safety
     payload = {
+        'activity': 'list',
         'res': 'min',
+        'spacecraft': 'omni_min',
         'start_date': start_dt.strftime('%Y%m%d'),
         'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25',  # comma-separated is accepted in form
-        'format': 'ascii',
-        'activity': 'retrieve',
-        'submit': 'Submit'
+        'vars': '13,14,17,18,19,23,24,25'
     }
 
     print("Sending payload:", payload)
 
     try:
-        r = requests.post(url, data=payload, timeout=120)
+        r = requests.post(url, data=payload, timeout=90)
         r.raise_for_status()
         text = r.text.strip()
         print(f"Response length: {len(text)} chars")
@@ -48,21 +46,21 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         raise RuntimeError("OMNIWeb rejected request. See response above.")
 
     lines = text.splitlines()
+
+    # Find the first line that starts with a 4-digit year (real data start)
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith('YYYY DOY HR MN'):
-            data_start = i + 1
-            break
-        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:
+        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:  # e.g., '2025 ...'
             data_start = i
             break
 
     if data_start is None:
-        print("No data block detected. Full response excerpt:")
+        print("No data lines found. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely no coverage.")
+        raise RuntimeError("No data lines detected in response. Likely parsing issue or no coverage.")
 
+    # Take from the first data line onward
     data_text = '\n'.join(lines[data_start:])
 
     df = pd.read_csv(
@@ -70,13 +68,14 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         sep=r"\s+",
         header=None,
         names=[
-            'year', 'doy', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
-            'speed', 'density', 'temperature', 'pdyn_npa'
+            'year', 'doy', 'hour', 'min', 'value1', 'value2', 'value3', 'value4',
+            'value5', 'value6', 'value7', 'value8'  # generic - we rename later
         ],
         na_values=['999.9', '99.99', '9999999.9', '9.99E+07'],
         on_bad_lines='skip'
     )
 
+    # Build time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
@@ -86,6 +85,20 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
+    # Rename columns based on your vars order (13=Bx, 14=By, 17=Bz, 18=Bt, 19=V, 23=Np, 24=T, 25=P)
+    column_map = {
+        'value1': 'bx_gsm',
+        'value2': 'by_gsm',
+        'value3': 'bz_gsm',
+        'value4': 'bt',
+        'value5': 'speed',
+        'value6': 'density',
+        'value7': 'temperature',
+        'value8': 'pdyn_npa'
+    }
+    df.rename(columns=column_map, inplace=True)
+
+    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
