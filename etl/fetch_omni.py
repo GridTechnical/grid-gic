@@ -54,24 +54,20 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
+    # Find the first real data line (starts with 4-digit year like '2025')
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if 'YYYY DOY HR MN' in stripped:
-            data_start = i + 1
-            break
-        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:
+        if stripped and stripped[0].isdigit() and len(stripped.split()) >= 5 and stripped.split()[0].isdigit() and len(stripped.split()[0]) == 4:
             data_start = i
             break
 
     if data_start is None:
-        print("No data block detected. Full response excerpt:")
+        print("No data lines found. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely parsing issue or no coverage.")
+        raise RuntimeError("No data lines detected. Likely parsing issue or no coverage.")
 
-    while data_start < len(lines) and not lines[data_start].strip().split()[0].isdigit():
-        data_start += 1
-
+    # Take from that line onward
     data_text = '\n'.join(lines[data_start:])
 
     df = pd.read_csv(
@@ -86,6 +82,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         on_bad_lines='skip'
     )
 
+    # Build time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
