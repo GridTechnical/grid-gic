@@ -47,24 +47,29 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find data start: look for the header 'YYYY DOY HR MN' or first data line starting with year
+    # Find the header line containing 'YYYY DOY HR MN'
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
         if 'YYYY DOY HR MN' in stripped:
-            data_start = i + 1  # Skip the header line
+            data_start = i + 1  # Start from the line AFTER the header
             break
-        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4 and stripped.split()[0].startswith('20'):
-            data_start = i
-            break
+
+    if data_start is None:
+        # Fallback: look for first line starting with 4-digit year
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:
+                data_start = i
+                break
 
     if data_start is None:
         print("No data block detected. Full response excerpt:")
         print(text[:2000])
         raise RuntimeError("No data block found. Likely parsing issue or no coverage.")
 
-    # Skip any non-data lines after header
-    while data_start < len(lines) and not lines[data_start].strip().startswith('20'):
+    # Skip any blank or non-data lines after header
+    while data_start < len(lines) and not lines[data_start].strip().split():
         data_start += 1
 
     data_text = '\n'.join(lines[data_start:])
