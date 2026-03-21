@@ -20,14 +20,30 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # MINIMAL payload — only required for activity=list mode
+    # Exact format from NASA command-line sample: repeated vars= param, activity=retrieve, dates with hour
     payload = {
-        'activity': 'list',
+        'activity': 'retrieve',
         'res': 'min',
         'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d'),
-        'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25'  # Bx, By, Bz, Bt, V, Np, T, P
+        'start_date': start_dt.strftime('%Y%m%d%H'),  # YYYYMMDDHH
+        'end_date': safe_end.strftime('%Y%m%d%H'),    # YYYYMMDDHH
+        'vars': '13', 'vars': '14', 'vars': '17', 'vars': '18',  # Repeated for each var
+        'vars': '19', 'vars': '23', 'vars': '24', 'vars': '25',
+        'scale': 'Linear',
+        'ymin': '',
+        'ymax': '',
+        'view': '0',
+        'charsize': '',
+        'xstyle': '0',
+        'ystyle': '0',
+        'symbol': '0',
+        'symsize': '',
+        'linestyle': 'solid',
+        'table': '0',
+        'imagex': '640',
+        'imagey': '480',
+        'color': '',
+        'back': ''
     }
 
     print("Sending payload:", payload)
@@ -41,13 +57,11 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     except requests.RequestException as e:
         raise RuntimeError(f"Request failed: {e}")
 
-    # Detect error early
     if '<H1> Error</H1>' in text or 'Wrong value' in text:
         print("Server error page. Full excerpt:")
         print(text[:2000])
-        raise RuntimeError("OMNIWeb rejected request. Likely bad param or no data coverage. See response above.")
+        raise RuntimeError("OMNIWeb rejected request. See response above.")
 
-    # Find data start
     lines = text.splitlines()
     data_start = None
     for i, line in enumerate(lines):
@@ -59,9 +73,8 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     if data_start is None:
         print("No data block. Full response:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely no coverage for range or server issue.")
+        raise RuntimeError("No data block found. Likely no coverage for range.")
 
-    # Parse data
     data_text = '\n'.join(lines[data_start:])
     df = pd.read_csv(
         StringIO(data_text),
@@ -84,7 +97,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
-    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
