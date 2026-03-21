@@ -8,17 +8,44 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
+    if df.empty:
+        print("No data to upsert — skipping.")
+        return
+
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    # ISO time column (UTC Z), NaN -> None
+
+    # Clean inf/-inf to None (SQL NULL)
+    df = df.replace([np.inf, -np.inf], None)
+
+    # Optional: drop rows where critical columns are NaN
+    critical_cols = ['time', 'density', 'speed', 'bz_gsm']  # adjust as needed
+    df = df.dropna(subset=critical_cols)
+
+    # Convert time index to string ISO for JSON
     payload = df.copy()
     if not isinstance(payload.index, pd.DatetimeIndex):
         raise ValueError("index must be DatetimeIndex")
     payload.index = payload.index.tz_convert("UTC") if payload.index.tz is not None else payload.index.tz_localize("UTC")
     payload.insert(0, "time", payload.index.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+    # Replace any remaining NaN with None for JSON
     payload = payload.where(pd.notna(payload), None)
+
     records = payload.reset_index(drop=True).to_dict(orient="records")
+
+    print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
+
     for i in range(0, len(records), chunk):
-        sb.table(table).upsert(records[i:i+chunk], on_conflict="time").execute()
+        chunk_records = records[i:i+chunk]
+        try:
+            sb.table(table).upsert(chunk_records, on_conflict="time").execute()
+            print(f"Upserted chunk {i//chunk + 1} ({len(chunk_records)} rows)")
+        except Exception as e:
+            print(f"Upsert chunk {i//chunk + 1} failed: {e}")
+            print("First record in chunk:", chunk_records[0] if chunk_records else "Empty")
+            raise
+
+    print(f"Backfilled {len(records)} rows")
 
 def main():
     # Inputs via env (YYYY-MM-DD or full ISO). Defaults to previous UTC day.
