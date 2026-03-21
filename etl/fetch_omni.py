@@ -8,11 +8,9 @@ from io import StringIO
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
     print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
-    # Parse dates (handle Z or no Z)
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
 
-    # Clamp end date to realistic availability (OMNI high-res lags ~3-6 months)
     today = datetime.now(timezone.utc)
     safe_end = min(end_dt, today - timedelta(days=120))
     if safe_end < start_dt:
@@ -22,14 +20,22 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # Minimal payload — only required params for activity=list
+    # Exact working format from NASA command-line sample
     payload = {
-        'activity': 'list',
+        'activity': 'retrieve',
         'res': 'min',
         'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d'),
-        'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25'  # Bx, By, Bz, Bt, V, Np, T, Pdyn
+        'start_date': start_dt.strftime('%Y%m%d%H'),  # YYYYMMDDHH
+        'end_date': safe_end.strftime('%Y%m%d%H'),    # YYYYMMDDHH
+        # Repeated vars= param for each variable (no comma-separated string)
+        'vars': '13',
+        'vars': '14',
+        'vars': '17',
+        'vars': '18',
+        'vars': '19',
+        'vars': '23',
+        'vars': '24',
+        'vars': '25',
     }
 
     print("Sending payload:", payload)
@@ -43,13 +49,11 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     except requests.RequestException as e:
         raise RuntimeError(f"Request failed: {e}")
 
-    # Early error detection
     if '<H1> Error</H1>' in text or 'Wrong value' in text:
-        print("Server returned error page. Full response excerpt:")
+        print("Server error page. Full excerpt:")
         print(text[:2000])
-        raise RuntimeError("OMNIWeb rejected request (bad param or no coverage). See response above.")
+        raise RuntimeError("OMNIWeb rejected request. See response above.")
 
-    # Find data block - flexible detection for header or first data line
     lines = text.splitlines()
     data_start = None
     for i, line in enumerate(lines):
@@ -57,20 +61,18 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         if not stripped:
             continue
         parts = stripped.split()
-        # Header line or first data line (year is 4 digits, doy/hour/min numeric)
         if len(parts) >= 5 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
             data_start = i
             break
         if stripped.startswith('YYYY'):
-            data_start = i + 1  # skip header
+            data_start = i + 1
             break
 
     if data_start is None:
         print("No data block detected. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely parsing issue or no coverage. See response above.")
+        raise RuntimeError("No data block found. Likely no coverage or parsing issue. See response above.")
 
-    # Skip any remaining non-data lines
     while data_start < len(lines) and not lines[data_start].strip().split()[0].isdigit():
         data_start += 1
 
@@ -87,7 +89,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         on_bad_lines='skip'
     )
 
-    # Build time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
@@ -97,7 +98,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
-    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
