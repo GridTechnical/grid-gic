@@ -47,20 +47,26 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the first line that starts with a 4-digit year (real data start)
+    # Find data start: look for the header 'YYYY DOY HR MN' or first data line starting with year
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4:  # e.g., '2025 ...'
+        if 'YYYY DOY HR MN' in stripped:
+            data_start = i + 1  # Skip the header line
+            break
+        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4 and stripped.split()[0].startswith('20'):
             data_start = i
             break
 
     if data_start is None:
-        print("No data lines found. Full response excerpt:")
+        print("No data block detected. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data lines detected in response. Likely parsing issue or no coverage.")
+        raise RuntimeError("No data block found. Likely parsing issue or no coverage.")
 
-    # Take from the first data line onward
+    # Skip any non-data lines after header
+    while data_start < len(lines) and not lines[data_start].strip().startswith('20'):
+        data_start += 1
+
     data_text = '\n'.join(lines[data_start:])
 
     df = pd.read_csv(
@@ -68,14 +74,13 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         sep=r"\s+",
         header=None,
         names=[
-            'year', 'doy', 'hour', 'min', 'value1', 'value2', 'value3', 'value4',
-            'value5', 'value6', 'value7', 'value8'  # generic - we rename later
+            'year', 'doy', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
+            'speed', 'density', 'temperature', 'pdyn_npa'
         ],
         na_values=['999.9', '99.99', '9999999.9', '9.99E+07'],
         on_bad_lines='skip'
     )
 
-    # Build time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
@@ -85,20 +90,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
-    # Rename columns based on your vars order (13=Bx, 14=By, 17=Bz, 18=Bt, 19=V, 23=Np, 24=T, 25=P)
-    column_map = {
-        'value1': 'bx_gsm',
-        'value2': 'by_gsm',
-        'value3': 'bz_gsm',
-        'value4': 'bt',
-        'value5': 'speed',
-        'value6': 'density',
-        'value7': 'temperature',
-        'value8': 'pdyn_npa'
-    }
-    df.rename(columns=column_map, inplace=True)
-
-    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
