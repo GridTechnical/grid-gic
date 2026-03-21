@@ -54,7 +54,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the first line that starts with a 4-digit year (e.g., '2025 ...')
+    # Find the first data line: starts with 4-digit year (e.g., '2025 ...')
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -70,7 +70,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     # Take from the first data line onward
     data_text = '\n'.join(lines[data_start:])
 
-    # Read CSV with whitespace separator
+    # Read CSV, skipping any junk rows
     df = pd.read_csv(
         StringIO(data_text),
         sep=r"\s+",
