@@ -1,6 +1,13 @@
 # etl/backfill_solar_wind.py
 import os
 import sys
+import datetime as dt
+import pandas as pd
+import numpy as np
+from supabase import create_client
+from fetch_omni import fetch_omni_range
+
+# Debug prints at the very top
 print("=== BACKFILL SCRIPT STARTED ===")
 print("Current working directory:", os.getcwd())
 print("Python path:", sys.executable)
@@ -8,12 +15,6 @@ print("Python version:", sys.version)
 print("Args:", sys.argv)
 print(f"SUPABASE_URL set? {'yes' if os.getenv('SUPABASE_URL') else 'NO'}")
 print(f"SUPABASE_SERVICE_KEY set? {'yes' if os.getenv('SUPABASE_SERVICE_KEY') else 'NO'}")
-import datetime as dt
-import pandas as pd
-import numpy as np
-from supabase import create_client
-from fetch_omni import fetch_omni_range
-
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -40,8 +41,6 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     for i in range(0, len(records), chunk):
         chunk_records = records[i:i+chunk]
-        
-        print("About to call fetch_omni_range...")
         try:
             response = sb.table(table).upsert(chunk_records, on_conflict="time").execute()
             print(f"Upsert chunk {i//chunk + 1} succeeded - inserted/updated {len(response.data)} rows")
@@ -62,10 +61,10 @@ def main():
         utc_today = dt.datetime.utcnow().date()
         start_iso = f"{utc_today - dt.timedelta(days=1)}T00:00:00Z"
         end_iso = f"{utc_today}T00:00:00Z"
-
     print(f"Backfill range: {start_iso} → {end_iso}")
 
     # Fetch data first
+    print("About to call fetch_omni_range...")
     df = fetch_omni_range(start_iso, end_iso, resample="1min")
     print(f"Fetched raw DF shape: {df.shape}")
 
@@ -85,3 +84,6 @@ def main():
         print("No valid data after cleaning — skipping upsert")
     else:
         upsert_dataframe("solar_wind_minute", df_out)
+
+if __name__ == "__main__":
+    main()
