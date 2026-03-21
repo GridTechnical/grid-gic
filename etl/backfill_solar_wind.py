@@ -1,4 +1,9 @@
 # etl/backfill_solar_wind.py
+print("=== BACKFILL SCRIPT STARTED ===")
+print("Current working directory:", os.getcwd())
+print("Python path:", sys.executable)
+print("Python version:", sys.version)
+print("Args:", sys.argv)
 import os, datetime as dt
 import pandas as pd
 import numpy as np
