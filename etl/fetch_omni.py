@@ -54,28 +54,31 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the first real data row (starts with 4-digit year like '2025')
+    # Find start: first line starting with 4-digit year
     data_start = None
-    data_end = len(lines)
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped and stripped[0].isdigit() and len(stripped.split()) >= 5 and stripped.split()[0].isdigit() and len(stripped.split()[0]) == 4:
-            if data_start is None:
-                data_start = i
-            # Look for end of data (e.g., line with 'If you' or footer)
-            if 'If you have any questions' in stripped or '</pre>' in stripped or '</BODY>' in stripped:
-                data_end = i
-                break
+            data_start = i
+            break
 
     if data_start is None:
         print("No data rows found. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data rows detected. Likely parsing issue or no coverage.")
+        raise RuntimeError("No data rows detected.")
 
-    # Slice only the data lines
+    # Find end: stop before footer (lines containing 'If you', '</pre>', or '</BODY>')
+    data_end = len(lines)
+    for i in range(data_start, len(lines)):
+        stripped = lines[i].strip()
+        if 'If you have any questions' in stripped or '</pre>' in stripped or '</BODY>' in stripped:
+            data_end = i
+            break
+
+    # Slice only clean data lines
     data_lines = lines[data_start:data_end]
 
-    # Join and read as CSV
+    # Join and read
     data_text = '\n'.join(data_lines)
 
     df = pd.read_csv(
