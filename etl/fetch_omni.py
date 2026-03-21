@@ -21,20 +21,12 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
     payload = {
-        'activity': 'retrieve',
+        'activity': 'list',
         'res': 'min',
         'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d%H'),  # YYYYMMDDHH format
-        'end_date': safe_end.strftime('%Y%m%d%H'),
-        # Repeated vars= (NASA format - one per variable)
-        'vars': '13',  # BX_GSM
-        'vars': '14',  # BY_GSM
-        'vars': '17',  # BZ_GSM
-        'vars': '18',  # BT
-        'vars': '19',  # V (speed)
-        'vars': '23',  # Np (density)
-        'vars': '24',  # T (temperature)
-        'vars': '25',  # P (pdyn)
+        'start_date': start_dt.strftime('%Y%m%d'),
+        'end_date': safe_end.strftime('%Y%m%d'),
+        'vars': '13,14,17,18,19,23,24,25'
     }
 
     print("Sending payload:", payload)
@@ -54,28 +46,23 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         raise RuntimeError("OMNIWeb rejected request. See response above.")
 
     lines = text.splitlines()
+
+    # Find the first line that starts with a 4-digit year (real data start)
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if not stripped:
-            continue
-        parts = stripped.split()
-        if len(parts) >= 5 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+        if stripped and stripped[0].isdigit() and len(stripped.split()[0]) == 4 and stripped.split()[0].startswith('2025'):  # adjust year if needed
             data_start = i
-            break
-        if stripped.startswith('YYYY'):
-            data_start = i + 1
             break
 
     if data_start is None:
-        print("No data block detected. Full response excerpt:")
+        print("No data lines found. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely no coverage or parsing issue.")
+        raise RuntimeError("No data lines detected in response. Likely parsing issue or no coverage.")
 
-    while data_start < len(lines) and not lines[data_start].strip().split()[0].isdigit():
-        data_start += 1
-
+    # Take only from the first data line onward
     data_text = '\n'.join(lines[data_start:])
+
     df = pd.read_csv(
         StringIO(data_text),
         sep=r"\s+",
@@ -88,6 +75,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         on_bad_lines='skip'
     )
 
+    # Build time index
     df['time'] = pd.to_datetime(
         df['year'].astype(str) + ' ' + df['doy'].astype(str),
         format='%Y %j'
@@ -97,6 +85,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     df = df.apply(pd.to_numeric, errors='coerce')
 
+    # Derived columns
     df["bz_south"] = df["bz_gsm"].clip(upper=0)
     df["vbz"] = df["speed"] * df["bz_gsm"]
     df["clock_angle_rad"] = np.arctan2(df["by_gsm"], df["bz_gsm"])
