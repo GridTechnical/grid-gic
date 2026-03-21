@@ -7,15 +7,6 @@ import numpy as np
 from supabase import create_client
 from fetch_omni import fetch_omni_range
 
-# Debug prints at the very top
-print("=== BACKFILL SCRIPT STARTED ===")
-print("Current working directory:", os.getcwd())
-print("Python path:", sys.executable)
-print("Python version:", sys.version)
-print("Args:", sys.argv)
-print(f"SUPABASE_URL set? {'yes' if os.getenv('SUPABASE_URL') else 'NO'}")
-print(f"SUPABASE_SERVICE_KEY set? {'yes' if os.getenv('SUPABASE_SERVICE_KEY') else 'NO'}")
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
@@ -27,14 +18,7 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     
     # Clean inf/-inf to None (SQL NULL)
     df = df.replace([np.inf, -np.inf], None)
-    
-    # Drop rows where critical columns are NaN — time is now a column
-    #critical_cols = ['time', 'density', 'speed', 'bz_gsm']
-    print("Input DF shape to upsert_dataframe:", df.shape)
-    print("Rows before critical dropna:", len(df))
-   # df = df.dropna(subset=critical_cols)
-    print("Rows after critical dropna:", len(df))
-    
+       
     # FIX: Convert time to ISO string BEFORE to_dict (fixes Timestamp JSON error)
     if 'time' in df.columns and pd.api.types.is_datetime64_any_dtype(df['time']):
         df['time'] = df['time'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -47,10 +31,7 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     
     records = df.to_dict(orient="records")
     # Print the first 3 records (or adjust the number)
-    print("\nSample of first 100 records being upserted:")
-    for idx, rec in enumerate(records[:100]):
-        print(f"Record {idx + 1}: {rec}")
-    print("... (showing first 100 of {len(records)} total records)\n")
+   
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     
     for i in range(0, len(records), chunk):
