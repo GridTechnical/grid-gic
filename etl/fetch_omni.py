@@ -20,22 +20,13 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # Exact working format from NASA command-line sample
     payload = {
-        'activity': 'retrieve',
+        'activity': 'list',
         'res': 'min',
         'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d%H'),  # YYYYMMDDHH
-        'end_date': safe_end.strftime('%Y%m%d%H'),    # YYYYMMDDHH
-        # Repeated vars= param for each variable (no comma-separated string)
-        'vars': '13',
-        'vars': '14',
-        'vars': '17',
-        'vars': '18',
-        'vars': '19',
-        'vars': '23',
-        'vars': '24',
-        'vars': '25',
+        'start_date': start_dt.strftime('%Y%m%d'),
+        'end_date': safe_end.strftime('%Y%m%d'),
+        'vars': '13,14,17,18,19,23,24,25'
     }
 
     print("Sending payload:", payload)
@@ -52,7 +43,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     if '<H1> Error</H1>' in text or 'Wrong value' in text:
         print("Server error page. Full excerpt:")
         print(text[:2000])
-        raise RuntimeError("OMNIWeb rejected request. See response above.")
+        raise RuntimeError("OMNIWeb rejected request (bad param or no coverage). See response above.")
 
     lines = text.splitlines()
     data_start = None
@@ -79,7 +70,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     data_text = '\n'.join(lines[data_start:])
     df = pd.read_csv(
         StringIO(data_text),
-        delim_whitespace=True,
+        sep=r"\s+",  # ← FIXED: replacement for delim_whitespace=True
         header=None,
         names=[
             'year', 'doy', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
