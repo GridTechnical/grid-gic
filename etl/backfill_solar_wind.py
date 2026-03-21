@@ -29,10 +29,10 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     df = df.replace([np.inf, -np.inf], None)
     
     # Drop rows where critical columns are NaN — time is now a column
-    critical_cols = ['time', 'density', 'speed', 'bz_gsm']
+    #critical_cols = ['time', 'density', 'speed', 'bz_gsm']
     print("Input DF shape to upsert_dataframe:", df.shape)
     print("Rows before critical dropna:", len(df))
-    df = df.dropna(subset=critical_cols)
+   # df = df.dropna(subset=critical_cols)
     print("Rows after critical dropna:", len(df))
     
     # FIX: Convert time to ISO string BEFORE to_dict (fixes Timestamp JSON error)
