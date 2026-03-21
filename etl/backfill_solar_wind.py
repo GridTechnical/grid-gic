@@ -1,6 +1,7 @@
 # etl/backfill_solar_wind.py
 import os, datetime as dt
 import pandas as pd
+import numpy as np
 from supabase import create_client
 from fetch_omni import fetch_omni_range
 
