@@ -6,7 +6,7 @@ from typing import Optional
 from io import StringIO
 
 def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1min") -> pd.DataFrame:
-    print(f"Fetching OMNI via OMNIWeb form endpoint: {start_iso} → {end_iso}")
+    print(f"Fetching OMNI via OMNIWeb CGI: {start_iso} → {end_iso}")
 
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
@@ -18,17 +18,22 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     print(f"Using clamped end date: {safe_end.date()} (UTC)")
 
-    url = "https://omniweb.gsfc.nasa.gov/form/omni_min.html"
+    url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    # Mimic browser form POST (this is how the web form submits)
     payload = {
-        'res': 'min',
-        'start_date': start_dt.strftime('%Y%m%d'),
-        'end_date': safe_end.strftime('%Y%m%d'),
-        'vars': '13,14,17,18,19,23,24,25',  # comma-separated works here
-        'format': 'ascii',
         'activity': 'retrieve',
-        'submit': 'Submit'
+        'res': 'min',
+        'spacecraft': 'omni_min',
+        'start_date': start_dt.strftime('%Y%m%d%H'),
+        'end_date': safe_end.strftime('%Y%m%d%H'),
+        'vars': '13',
+        'vars': '14',
+        'vars': '17',
+        'vars': '18',
+        'vars': '19',
+        'vars': '23',
+        'vars': '24',
+        'vars': '25'
     }
 
     print("Sending payload:", payload)
@@ -49,7 +54,6 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     lines = text.splitlines()
 
-    # Find the data table start: look for the header or first data row
     data_start = None
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -63,9 +67,8 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     if data_start is None:
         print("No data block detected. Full response excerpt:")
         print(text[:2000])
-        raise RuntimeError("No data block found. Likely no coverage or parsing issue.")
+        raise RuntimeError("No data block found. Likely parsing issue or no coverage.")
 
-    # Skip header lines
     while data_start < len(lines) and not lines[data_start].strip().split()[0].isdigit():
         data_start += 1
 
