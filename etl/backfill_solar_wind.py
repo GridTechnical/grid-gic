@@ -6,11 +6,14 @@ print("Current working directory:", os.getcwd())
 print("Python path:", sys.executable)
 print("Python version:", sys.version)
 print("Args:", sys.argv)
+print(f"SUPABASE_URL set? {'yes' if os.getenv('SUPABASE_URL') else 'NO'}")
+print(f"SUPABASE_SERVICE_KEY set? {'yes' if os.getenv('SUPABASE_SERVICE_KEY') else 'NO'}")
 import datetime as dt
 import pandas as pd
 import numpy as np
 from supabase import create_client
 from fetch_omni import fetch_omni_range
+
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -37,6 +40,8 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     for i in range(0, len(records), chunk):
         chunk_records = records[i:i+chunk]
+        
+        print("About to call fetch_omni_range...")
         try:
             response = sb.table(table).upsert(chunk_records, on_conflict="time").execute()
             print(f"Upsert chunk {i//chunk + 1} succeeded - inserted/updated {len(response.data)} rows")
