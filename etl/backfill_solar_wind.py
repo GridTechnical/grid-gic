@@ -43,6 +43,11 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 1000):
     df = df.dropna(how="all")
     
     records = df.to_dict(orient="records")
+    # Print the first 3 records (or adjust the number)
+    print("\nSample of first 100 records being upserted:")
+    for idx, rec in enumerate(records[:100]):
+        print(f"Record {idx + 1}: {rec}")
+    print("... (showing first 100 of {len(records)} total records)\n")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
     
     for i in range(0, len(records), chunk):
