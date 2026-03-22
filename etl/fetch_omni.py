@@ -85,7 +85,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         sep=r"\s+",
         header=None,
         names=[
-            'year', 'day', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
+            'year', 'doy', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
             'speed', 'density', 'temperature', 'pdyn_npa'
         ],
         na_values=['999.9', '99.99', '9999999.9', '9.99E+07'],
