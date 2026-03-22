@@ -26,13 +26,14 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
     ('spacecraft', 'omni_min'),
     ('start_date', start_dt.strftime('%Y%m%d%H')),
     ('end_date', safe_end.strftime('%Y%m%d%H')),
-    ('vars', '26'),   
-    ('vars', '22'),   
-    ('vars', '15'),   
-    ('vars', '18'),   
-    ('vars', '19'),   
-    ('vars', '14'),   
-    ('vars', '28'),      
+    ('vars', '25'),   # density
+    ('vars', '21'),   # speed
+    ('vars', '26'),   # temperature
+    ('vars', '14'),   # bx_gsm
+    ('vars', '17'),   # by_gsm
+    ('vars', '18'),   # bz_gsm
+    ('vars', '13'),   # total field strength
+    ('vars', '27'),   # dynamic Pressure
     ]
 
     print("Sending payload:", payload)
