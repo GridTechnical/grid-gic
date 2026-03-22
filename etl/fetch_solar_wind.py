@@ -11,7 +11,7 @@ import sys, os as _os
 REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
-from scripts.fetch_solar_wind import fetch_solar_wind_merged
+from etl.fetch_solar_wind import fetch_solar_wind_merged
 # If you moved the file to etl/, use:
 # from fetch_solar_wind import fetch_solar_wind_merged
 
