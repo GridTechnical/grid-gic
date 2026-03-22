@@ -11,58 +11,36 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 500):
-    """Upsert a DataFrame into Supabase:
-       - ensures 'time' is an ISO-8601 string (UTC, 'Z' suffix)
-       - converts NaN -> None so JSON serialization works
-    """
     if df.empty:
         print("No data to upsert — skipping.")
         return
-
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise RuntimeError("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY")
-
-    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
+    sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    
     print(f"Input DF shape to upsert: {df.shape}")
     print(f"Columns: {df.columns.tolist()}")
 
-    # Build a payload DataFrame with an ISO 'time' column
-    payload = df.copy()
+    # Clean inf/-inf to None
+    df = df.replace([np.inf, -np.inf], None)
+    
+    # Optional: drop fully empty rows only (all columns NaN)
+    df = df.dropna(how="all")
+    
+    # Convert time to ISO string (if it's still Timestamp)
+    if 'time' in df.columns and pd.api.types.is_datetime64_any_dtype(df['time']):
+        df['time'] = df['time'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    # Ensure index is tz-aware UTC; create ISO time column
-    if not isinstance(payload.index, pd.DatetimeIndex):
-        raise ValueError("DataFrame index must be DatetimeIndex")
+    # NaN → None for JSON (supabase-py handles NaN as NULL, but this is explicit)
+    df = df.replace({np.nan: None})
 
-    if payload.index.tz is None:
-        payload.index = payload.index.tz_localize("UTC")
-    else:
-        payload.index = payload.index.tz_convert("UTC")
-
-    payload.insert(
-        0,
-        "time",
-        payload.index.to_series().dt.strftime("%Y-%m-%dT%H:%M:%SZ").values,
-    )
-
-    # Replace NaN with None for JSON serialization
-    payload = payload.replace({np.nan: None})
-
-    # Convert to list of dict records
-    records = payload.reset_index(drop=True).to_dict(orient="records")
-
+    records = df.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
 
     for i in range(0, len(records), chunk):
-        chunk_records = records[i:i + chunk]
+        chunk_records = records[i:i+chunk]
         try:
-            response = supabase.table(table).upsert(
-                chunk_records, on_conflict="time"
-            ).execute()
-
+            response = sb.table(table).upsert(chunk_records, on_conflict="time").execute()
             inserted_updated = len(response.data) if response.data else 0
             print(f"Upsert chunk {i//chunk + 1} succeeded - inserted/updated {inserted_updated} rows")
-
             if response.data:
                 print(f"First record response example: {response.data[0]}")
             else:
@@ -71,7 +49,7 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 500):
             print(f"Upsert chunk {i//chunk + 1} failed: {e}")
             if chunk_records:
                 print("First record in chunk:", chunk_records[0])
-            raise  # re-raise to stop on error (remove if you want to continue)
+            raise  # remove 'raise' if you want to continue on failure
 
     print(f"Backfilled {len(records)} rows")
 
