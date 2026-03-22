@@ -20,22 +20,29 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
+   # payload = {
+    #    'activity': 'retrieve',
+    #    'res': 'min',
+     #   'spacecraft': 'omni_min',
+      #  'start_date': start_dt.strftime('%Y%m%d%H'),
+    #    'end_date': safe_end.strftime('%Y%m%d%H'),
+    #    'vars': '13',
+    #    'vars': '14',
+    #    'vars': '17',
+    #    'vars': '18',
+    #    'vars': '19',
+    #    'vars': '23',
+    #    'vars': '24',
+    #    'vars': '25'
+   # }
     payload = {
-        'activity': 'retrieve',
-        'res': 'min',
-        'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d%H'),
-        'end_date': safe_end.strftime('%Y%m%d%H'),
-        'vars': '13',
-        'vars': '14',
-        'vars': '17',
-        'vars': '18',
-        'vars': '19',
-        'vars': '23',
-        'vars': '24',
-        'vars': '25'
-    }
-
+    'activity': 'list',
+    'res': 'min',
+    'spacecraft': 'omni_min',
+    'start_date': start_dt.strftime('%Y%m%d'),
+    'end_date': safe_end.strftime('%Y%m%d'),
+    'vars': '13,14,17,18,19,23,24,25'  # comma-separated
+    }        
     print("Sending payload:", payload)
 
     try:
@@ -86,7 +93,7 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
         sep=r"\s+",
         header=None,
         names=[
-            'year', 'doy', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
+            'year', 'day', 'hour', 'min', 'bx_gsm', 'by_gsm', 'bz_gsm', 'bt',
             'speed', 'density', 'temperature', 'pdyn_npa'
         ],
         na_values=['999.9', '99.99', '9999999.9', '9.99E+07'],
