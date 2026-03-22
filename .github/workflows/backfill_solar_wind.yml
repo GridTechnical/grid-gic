@@ -1,7 +1,7 @@
 name: Backfill solar wind (daily OMNI)
 on:
-  schedule:
-    - cron: "10 2 * * *"   # 02:10 UTC daily
+ # schedule:
+  #  - cron: "10 2 * * *"   # 02:10 UTC daily
   workflow_dispatch:
     inputs:
       start_iso:
