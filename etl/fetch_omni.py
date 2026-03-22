@@ -20,21 +20,22 @@ def fetch_omni_range(start_iso: str, end_iso: str, resample: Optional[str] = "1m
 
     url = "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
 
-    payload = {
-        'activity': 'retrieve',
-        'res': 'min',
-        'spacecraft': 'omni_min',
-        'start_date': start_dt.strftime('%Y%m%d%H'),
-        'end_date': safe_end.strftime('%Y%m%d%H'),
-        
-        'vars': '17', # BZ_GSM
-        'vars': '18', # BT (optional)
-        'vars': '19', # V/speed
-        'vars': '23', # Np/density
-        
-        'vars': '25' # P/pdyn
-   }
-         
+    payload = [
+    ('activity', 'retrieve'),
+    ('res', 'min'),
+    ('spacecraft', 'omni_min'),
+    ('start_date', start_dt.strftime('%Y%m%d%H')),
+    ('end_date', safe_end.strftime('%Y%m%d%H')),
+    ('vars', '13'),   # BX_GSM
+    ('vars', '14'),   # BY_GSM
+    ('vars', '17'),   # BZ_GSM
+    ('vars', '18'),   # BT
+    ('vars', '19'),   # V/speed
+    ('vars', '23'),   # Np/density
+    ('vars', '24'),   # T/temperature
+    ('vars', '25')    # P/pdyn
+    ]
+
     print("Sending payload:", payload)
 
     try:
