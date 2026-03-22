@@ -1,4 +1,4 @@
-# etl/ingest_solar_wind.py
+# etl/fetch_solar_wind.py
 import os
 import json
 import datetime as dt
