@@ -13,7 +13,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 #from etl.fetch_solar_wind import fetch_solar_wind_merged
 # If you moved the file to etl/, use:
-from fetch_solar_wind import fetch_solar_wind_merged
+#from fetch_solar_wind import fetch_solar_wind_merged
 
 from supabase import create_client
 
