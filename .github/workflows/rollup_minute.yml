@@ -1,7 +1,8 @@
 name: Rollup minute aggregates (daily)
 on:
- # schedule: [ { cron: "10 06 * * *" } ]   # 06:10 UTC daily
- # workflow_dispatch: {}
+  schedule:
+    - cron: "10 6 * * *"
+  workflow_dispatch: {}
 jobs:
   rollup:
     runs-on: ubuntu-latest
