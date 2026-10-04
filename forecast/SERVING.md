@@ -1,6 +1,6 @@
 # Serving later (not live)
 
-The heatmap and the L1 RTSW strip do not read this model. Do not wire it in until a hold-out on more than one storm is boringly stable. The default artifact is Swarm along-track |dB/dt| (µT/s), not ground |dB/dt|. On the 4 Nov 2025 hold-out its exceedance probabilities do not beat a magnetic-latitude / MLT climatology. See the model card.
+The heatmap and the L1 RTSW strip do not read this model. The default artifact is Swarm along-track |dB/dt| (µT/s), not ground |dB/dt|. On the 4 Nov 2025 hold-out and on the 28 Oct–3 Nov storm it now beats a magnetic-latitude / MLT climatology on both ROC AUC and Brier (see the model card). It is still not wired in: the label is the satellite track, not a ground rate, and substorm onset still jitters inside the hour.
 
 Suggested table, not created:
 

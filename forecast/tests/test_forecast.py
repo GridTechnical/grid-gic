@@ -7,8 +7,15 @@ import numpy as np
 import pandas as pd
 
 from forecast.features import add_trailing_features, clean_l1
-from forecast.labels import band_minute_max, labels_for_decisions
-from forecast.physics import dynamic_pressure_npa, magnetic_latitude_deg, magnetic_local_time_hours
+from forecast.labels import along_track_excess, band_minute_max, labels_for_decisions
+from forecast.physics import (
+    cone_angle_rad,
+    dynamic_pressure_npa,
+    epsilon_proxy,
+    half_wave_coupling,
+    magnetic_latitude_deg,
+    magnetic_local_time_hours,
+)
 from forecast.storms import assign_storm_ids, train_holdout_ids
 
 
@@ -66,10 +73,10 @@ class PhysicsTests(unittest.TestCase):
         future.iloc[-1, future.columns.get_loc("speed")] = 900.0
         b = add_trailing_features(future)
         t = a.index[60]
-        self.assertTrue(np.allclose(a.loc[t, "bz_min_60"], b.loc[t, "bz_min_60"]))
-        self.assertTrue(np.allclose(a.loc[t, "speed_max_60"], b.loc[t, "speed_max_60"]))
+        pd.testing.assert_series_equal(a.loc[t], b.loc[t])
         # The last row is allowed to see that new sample.
         self.assertLess(b.iloc[-1]["bz_min_60"], a.iloc[-1]["bz_min_60"])
+        self.assertLess(b.iloc[-1]["bz_min_15"], a.iloc[-1]["bz_min_15"])
 
     def test_label_window_is_delayed(self):
         t0 = pd.Timestamp("2025-10-11T12:00:00Z")
@@ -141,6 +148,74 @@ class PhysicsTests(unittest.TestCase):
         mlt = magnetic_local_time_hours(np.full(4, 45.4), np.full(4, -75.55), when)
         self.assertEqual(len(mlt), 4)
         self.assertTrue(np.all((mlt >= 0) & (mlt < 24)))
+
+    def test_coupling_proxies_stay_missing(self):
+        speed = pd.Series([400.0, np.nan, 400.0])
+        bt = pd.Series([5.0, 5.0, np.nan])
+        clock = pd.Series([np.pi, np.pi, np.pi])
+        bx = pd.Series([0.0, 1.0, 1.0])
+        bz = pd.Series([2.0, -4.0, np.nan])
+        eps = epsilon_proxy(speed, bt, clock)
+        self.assertTrue(np.isfinite(eps.iloc[0]))
+        self.assertGreater(eps.iloc[0], 0)
+        self.assertTrue(np.isnan(eps.iloc[1]))
+        self.assertTrue(np.isnan(eps.iloc[2]))
+        cone = cone_angle_rad(bx, bt)
+        self.assertAlmostEqual(cone.iloc[0], np.pi / 2)
+        self.assertTrue(np.isnan(cone.iloc[2]))
+        hw = half_wave_coupling(speed, bz)
+        # Northward Bz is a real zero, not a fill. Missing speed or Bz stays missing.
+        self.assertEqual(hw.iloc[0], 0.0)
+        self.assertTrue(np.isnan(hw.iloc[1]))
+        self.assertTrue(np.isnan(hw.iloc[2]))
+
+    def test_recent_dbdt_does_not_enter_the_label_hour(self):
+        t0 = pd.Timestamp("2025-10-11T12:00:00Z")
+        samples = pd.DataFrame(
+            {
+                "time": [
+                    t0 - pd.Timedelta(minutes=10),
+                    t0 + pd.Timedelta(minutes=20),
+                    t0 + pd.Timedelta(minutes=50),
+                ],
+                "lat": [65.0, 65.0, 65.0],
+                "lon": [-100.0, -100.0, -100.0],
+                "dbdt_nts": [1.5, 9.0, 0.3],
+            }
+        )
+        minutes = band_minute_max(samples, "dbdt_nts")
+        labels = labels_for_decisions(minutes, pd.DatetimeIndex([t0]), threshold=0.05)
+        self.assertEqual(len(labels), 1)
+        # +50 is inside [t+30, t+90). +20 is in the gap. -10 is the recent window.
+        self.assertAlmostEqual(labels.iloc[0]["y_max_dbdt"], 0.3)
+        self.assertAlmostEqual(labels.iloc[0]["recent_dbdt_max_60"], 1.5)
+
+    def test_along_track_excess_removes_the_bin_median(self):
+        t0 = pd.Timestamp("2025-07-01T00:00:00Z")
+        times = [t0 + pd.Timedelta(minutes=i) for i in range(40)]
+        quiet = pd.DataFrame(
+            {
+                "time": times,
+                "lat": [65.0] * 40,
+                "lon": [-100.0] * 40,
+                "dbdt_uts": [0.04] * 40,
+            }
+        )
+        spike = quiet.iloc[[10]].copy()
+        spike["dbdt_uts"] = 0.20
+        samples = pd.concat([quiet.iloc[:10], spike, quiet.iloc[11:]], ignore_index=True)
+        # A later hold-out-sized spike must not move the fit median.
+        later = quiet.iloc[[0]].copy()
+        later["time"] = t0 + pd.Timedelta(days=30)
+        later["dbdt_uts"] = 0.90
+        samples = pd.concat([samples, later], ignore_index=True)
+        out = along_track_excess(samples, "dbdt_uts", fit_before=t0 + pd.Timedelta(days=20), min_bin=10)
+        early = out[out["time"] < t0 + pd.Timedelta(days=1)]
+        self.assertAlmostEqual(float(early["dbdt_excess"].median()), 0.0, places=6)
+        self.assertGreater(float(early["dbdt_excess"].max()), 0.1)
+        held = out[out["time"] >= t0 + pd.Timedelta(days=20)]
+        # Background stayed at 0.04, so the held-out 0.90 is excess 0.86, not absorbed into the median.
+        self.assertGreater(float(held["dbdt_excess"].iloc[0]), 0.8)
 
 
 if __name__ == "__main__":

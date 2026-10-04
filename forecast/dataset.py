@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from forecast.constants import (
@@ -12,7 +13,7 @@ from forecast.constants import (
     SWARM_DBDT_THRESHOLD_UTPS,
 )
 from forecast.features import NUMERIC_FEATURES, add_trailing_features, decision_times
-from forecast.labels import band_minute_max, labels_for_decisions
+from forecast.labels import along_track_excess, band_minute_max, labels_for_decisions, recent_band_max
 from forecast.nrcan import fetch_nrcan_dbdt
 from forecast.omni import fetch_omni
 from forecast.storms import assign_storm_ids
@@ -91,6 +92,16 @@ def load_labels(kind: str, windows: list[tuple[str, str]], stations: list[str] |
     return samples, value_col, unit, threshold, source, notes
 
 
+def _background_cutoff(samples: pd.DataFrame):
+    """Hold the last 10 days out of a long spatial median so the hold-out orbit is not its own climatology."""
+    if samples.empty or "time" not in samples.columns:
+        return None
+    t = pd.to_datetime(samples["time"], utc=True)
+    if t.max() - t.min() < pd.Timedelta(days=21):
+        return None
+    return t.max() - pd.Timedelta(days=10)
+
+
 def build_training_table(
     l1_raw: pd.DataFrame,
     samples: pd.DataFrame,
@@ -106,6 +117,36 @@ def build_training_table(
     labels = labels_for_decisions(band_minutes, decisions, threshold)
     if labels.empty:
         return labels, features
+    labels["mlat_band"] = labels["mlat_band"].astype(str)
+    labels["mlt_sector"] = labels["mlt_sector"].astype(str)
+    band_recent = recent_band_max(band_minutes, decisions, minutes=60)
+    if len(band_recent):
+        band_recent["mlat_band"] = band_recent["mlat_band"].astype(str)
+        labels = labels.merge(band_recent, on=["time", "mlat_band"], how="left")
+    else:
+        labels["recent_band_max_60"] = np.nan
+    cutoff = _background_cutoff(samples)
+    excess_src = along_track_excess(samples, value_col, fit_before=cutoff) if len(samples) else pd.DataFrame()
+    if len(excess_src) and excess_src["dbdt_excess"].notna().any():
+        excess_minutes = band_minute_max(excess_src, "dbdt_excess")
+        excess_labels = labels_for_decisions(excess_minutes, decisions, threshold, recent_minutes=0)
+        if len(excess_labels):
+            excess_labels = excess_labels.rename(columns={"y_max_dbdt": "y_excess_max"})
+            excess_labels["mlat_band"] = excess_labels["mlat_band"].astype(str)
+            excess_labels["mlt_sector"] = excess_labels["mlt_sector"].astype(str)
+            labels = labels.merge(
+                excess_labels[["time", "mlat_band", "mlt_sector", "y_excess_max"]],
+                on=["time", "mlat_band", "mlt_sector"],
+                how="left",
+            )
+    if "y_excess_max" not in labels.columns:
+        labels["y_excess_max"] = np.nan
+    from forecast.constants import MLAT_BANDS, MLT_SECTORS
+
+    labels["mlat_band"] = pd.Categorical(labels["mlat_band"], categories=MLAT_BANDS, ordered=True)
+    labels["mlt_sector"] = pd.Categorical(
+        labels["mlt_sector"], categories=[n for n, _, _ in MLT_SECTORS], ordered=True
+    )
     feat = features.loc[labels["time"]].reset_index(drop=True)
     # features.loc on a repeated time index repeats rows in lockstep with labels.
     storm = storms.loc[labels["time"]].reset_index(drop=True)
@@ -117,6 +158,7 @@ def build_training_table(
         ],
         axis=1,
     )
+    table.attrs["background_fit_before"] = None if cutoff is None else pd.Timestamp(cutoff).strftime("%Y-%m-%dT%H:%M:%SZ")
     return table, features
 
 

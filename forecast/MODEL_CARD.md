@@ -78,20 +78,48 @@ Swarm coverage queried 2026-10-04: `minute_ts` from 2025-07-01 00:00Z through 20
 
 Holes with no Swarm minutes: 2025-07-31..2025-08-26, 2025-09-26..2025-09-27, 2025-11-05..2026-09-26. Partial days kept (2 of 3 satellites): 2025-09-24, 2025-10-12, 2025-10-13. OMNI minutes 141,120. Swarm samples 419,040. Joined rows 178,064. Positive rate about 0.35. Rebuild with `python -m forecast.build_long_swarm` (cache under gitignored `data/`).
 
-Official hold-out `storm_20251104T0411Z` (2025-11-04 04:15Z–14:00Z, 828 rows). Train 176,503 rows.
+### What changed relative to the shallow model
+
+The previous artifact (depth 3, `class_weight='balanced'`, 30 and 60 min L1 only) scored hold-out AUC 0.911 against a band×MLT climatology of 0.904, and Brier 0.122 against 0.120. Almost all of that AUC was the orbital map: south-polar and equatorial along-track |dB/dt| are hot whether or not the solar wind is.
+
+Two changes, in the order they mattered:
+
+1. Capacity, chosen on the previous feature table by 5-fold storm CV (23 storms of at least 6 h, interleaved in time, official hold-out not in a fold). Depth 3 + balanced: mean AUC 0.912 vs climatology 0.901, Brier 0.123 vs 0.121. Depth 6, `min_samples_leaf` 80, no class weight: mean AUC 0.956 vs 0.901, Brier 0.080 vs 0.121. Balanced weights were dropped because they made the probabilities worse, not better. That is the calibration step. There is no second isotonic model. One model with band and MLT as categorical inputs was enough; separate per-band fits were not required once the trees could split on the band.
+2. Features, added after that choice and not re-tuned on the hold-out. Trailing windows are 15, 30, 60, 120, and 180 min. Clock angle enters as sin/cos, not a linear mean of a wrapped angle. Also IMF cone angle, the Newell coupling proxy, an epsilon-style proxy `v * Bt^2 * sin^4(|clock|/2)`, half-wave `v * max(-Bz, 0)`, and transit time `tau = L1_distance / v` clipped to 30–90 min. Missing plasma stays missing.
+
+The along-track spatial background is a median in 2° magnetic latitude by MLT sector, fit only on minutes before 2025-10-25 23:59Z (the last 10 days of the archive, which include the hold-out, are excluded). `y_excess_max` is the label-hour max of |dB/dt| minus that median. It is a label, not a feature. Recent Swarm |dB/dt| on [t−60 min, t] in the same band (and in the same band and sector) does not touch [t+30, t+90). Those two columns are about 92% and 99% observed, so they are **not** in the saved model: `forecast.predict` is L1-only and would otherwise score every row as a rare gap. They are an ablation.
+
+### Official hold-out
+
+`storm_20251104T0411Z` (2025-11-04 04:15Z–14:00Z, 828 rows). Train 176,503 rows. Threshold 0.05 µT/s.
 
 | | train | hold-out | band×MLT climatology on the hold-out |
 | --- | --- | --- | --- |
 | positive rate | 0.35 | 0.35 | train rate by band and sector |
-| ROC AUC | 0.916 | **0.911** | **0.904** |
-| Brier | 0.120 | **0.122** | **0.120** |
-| MAE of max \|dB/dt\| | 0.014 µT/s | **0.014 µT/s** | **0.021 µT/s** |
+| ROC AUC | 0.963 | **0.957** | **0.904** |
+| Brier | 0.076 | **0.080** | **0.120** |
+| MAE of max \|dB/dt\| | 0.0098 µT/s | **0.010 µT/s** | **0.021 µT/s** |
 
-A constant forecast at the train positive rate has hold-out Brier 0.228. The classifier does **not** beat a lookup of how often each magnetic-latitude band and MLT sector exceeds 0.05 µT/s (AUC 0.911 vs 0.904, Brier 0.122 vs 0.120). South-polar and equatorial along-track |dB/dt| are hot in both train and this hold-out; that map is most of the AUC. The regressor does beat the same lookup (MAE 0.014 vs 0.021 µT/s).
+ΔAUC = +0.053. Brier is lower by 0.040. A constant forecast at the train positive rate has hold-out Brier 0.228. This is the first long-table fit that beats the orbital map on both probability scores, not only on MAE.
 
-A second split, not the saved hold-out, leaves out the earlier long interval `storm_20251028T0738Z` (28 Oct–3 Nov, 12,809 rows) and trains only on data before it. Hold-out AUC 0.911 vs climatology 0.896, Brier 0.123 vs 0.124, MAE 0.014 vs 0.020 µT/s. Same pattern: a small regression gain, almost no probability skill beyond the orbital band map.
+A second classifier, same L1 features and the same capacity, trained on the within-cell residual (1 if the label is at or above that cell's training 75th percentile; cell rates are ~0.25, so the climatology has almost no rank skill):
 
-This is not a forecast to put on the map. What would move it: ground |dB/dt| (a complete NRCan set, or SuperMAG once a user id exists), a Swarm label with the along-track spatial gradient taken out, and storms from another season. The archive does not have that season yet.
+| label | hold-out AUC | cell climatology AUC | hold-out Brier | cell climatology Brier |
+| --- | --- | --- | --- | --- |
+| raw max \|dB/dt\| above the cell p75 | 0.881 | 0.446 | 0.148 | 0.196 |
+| track-excess max above the cell p75 | 0.906 | 0.464 | 0.138 | 0.196 |
+
+The saved residual head is the track-excess one (`p_above_cell_p75`). The 0.05 µT/s head is still `p_exceed`.
+
+A second split, not used to pick depth, leaves out `storm_20251028T0738Z` (28 Oct–3 Nov, 12,809 rows) and trains only on earlier rows. Hold-out AUC 0.953 vs climatology 0.896, Brier 0.085 vs 0.124, MAE 0.010 vs 0.020 µT/s. Same direction as the official split.
+
+Ablation, not saved: adding the two recent |dB/dt| columns moves the official hold-out to AUC 0.979, Brier 0.054, MAE 0.0083 µT/s. That is a nowcast, and it needs Swarm (or a ground magnetometer) at decision time. It is not what `forecast.predict` runs.
+
+### Ground stations were not expanded
+
+NRCan FDSN station list (network C2, no key) answered on 2026-10-04. Live primaries in the catalog: ALE, ARF, BLC, BRD, CBB, EUA, FCC, IQA, MEA, OTT, RES, SNK, STJ, VIC, YKC. A dataselect probe for 2025-10-10 12:00–14:00Z, location R0, channels UFX/UFY/UFZ, returned **no station with all three components** (ALE missing Z, OTT only Z, and the same pattern at YKC, VIC, STJ, SNK, MEA, FCC, RES, CBB, BLC, IQA, BRD, ARF, EUA). A partial vector is not turned into |dB/dt|. The earlier smoke that kept Alert and Ottawa does not extend today. SuperMAG still needs a registered user id. No new secret was added.
+
+This is still not a ground |dB/dt| forecast and not a city GIC model. It is an L1 forecast of where Swarm's along-track |dB/dt| exceeds 0.05 µT/s, and it now beats the band×MLT map on a later storm and on the late-October storm. Do not paint it on the heatmap until the label is a ground rate.
 
 Numbers are in `forecast/artifacts/swarm_long_metrics.json`.
 

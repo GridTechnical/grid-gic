@@ -62,6 +62,11 @@ def predict_frame(bundle: dict, features: pd.DataFrame) -> list[dict]:
             prob = np.full(len(x), np.nan)
         else:
             prob = clf.predict_proba(x)[:, 1]
+        resid = bundle.get("residual_classifier")
+        if resid is None:
+            p_hot = np.full(len(x), np.nan)
+        else:
+            p_hot = resid.predict_proba(x)[:, 1]
         bands = []
         for j, item in enumerate(expanded):
             center = sector_center_mlt(item["mlt_sector"])
@@ -81,6 +86,7 @@ def predict_frame(bundle: dict, features: pd.DataFrame) -> list[dict]:
                     "geo_lon_center_deg": glon,
                     "supported_by_training": item["mlat_band"] in trained,
                     "p_exceed": None if not np.isfinite(prob[j]) else float(prob[j]),
+                    "p_above_cell_p75": None if not np.isfinite(p_hot[j]) else float(p_hot[j]),
                     "dbdt_expected": float(dbdt[j]),
                     "dbdt_range": [lo, hi],
                 }
@@ -94,6 +100,11 @@ def predict_frame(bundle: dict, features: pd.DataFrame) -> list[dict]:
                 "tau_min_from_speed": None if pd.isna(tau) else float(tau),
                 "threshold": threshold,
                 "unit": unit,
+                "p_above_cell_p75_means": (
+                    "P(along-track residual exceeds the training upper quartile of this band and MLT sector)"
+                    if bundle.get("residual_label") == "y_excess_max"
+                    else "P(max |dB/dt| exceeds the training upper quartile of this band and MLT sector)"
+                ),
                 "label_source": meta.get("label_source"),
                 "supermag": "MISSING",
                 "substorm_onset": "jitters by tens of minutes; this window is not an onset clock",

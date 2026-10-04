@@ -1,6 +1,14 @@
 {
   "model": "sklearn.HistGradientBoosting",
   "task": "P(mlat/MLT band max |dB/dt| exceeds threshold on [t+30min, t+90min)) plus expected |dB/dt|",
+  "capacity": {
+    "max_depth": 6,
+    "max_iter": 200,
+    "learning_rate": 0.05,
+    "min_samples_leaf": 80,
+    "class_weight": null,
+    "selection": "Long-table depth and class weight were chosen by 5-fold storm CV (storms of at least 6 h, interleaved in time, official hold-out not in the folds). depth 6 / leaf 80 / no class_weight beat depth 3 / balanced on both AUC and Brier versus band\u00d7MLT climatology. Balanced weights raised Brier."
+  },
   "train_storms": [
     "quiet_20250701T0000Z",
     "storm_20250701T0001Z",
@@ -125,28 +133,115 @@
   "train": {
     "n": 176503,
     "positive_rate": 0.3519316952119794,
-    "mae_dbdt": 0.014179248303462118,
-    "roc_auc": 0.916113510884403,
-    "average_precision": 0.8388938772828518,
-    "brier": 0.12031978316384062
+    "mae_dbdt": 0.009790819488838648,
+    "roc_auc": 0.9629427419478624,
+    "average_precision": 0.9235312406389222,
+    "brier": 0.07578830222534896
   },
   "holdout": {
     "n": 828,
     "positive_rate": 0.3526570048309179,
-    "mae_dbdt": 0.0137984758494068,
-    "roc_auc": 0.9114029595174811,
-    "average_precision": 0.8450011853957338,
-    "brier": 0.12168767445309712
+    "mae_dbdt": 0.009995208172467103,
+    "roc_auc": 0.9567956450623594,
+    "average_precision": 0.9223975021027636,
+    "brier": 0.08009096972365924
   },
   "holdout_climatology": {
     "constant_positive_rate": 0.3519316952119794,
     "constant_brier": 0.22829056784864718,
     "band_sector_brier": 0.12016309914846363,
-    "band_sector_mae": 0.021467845326635263,
-    "band_sector_roc_auc": 0.9039690247393171
+    "band_sector_roc_auc": 0.9039690247393171,
+    "band_sector_mae": 0.021467845326635263
   },
-  "residual_q10": -0.018755980492225568,
-  "residual_q90": 0.01692724310036296,
+  "holdout_above_cell_p75": {
+    "value": "y_max_dbdt",
+    "rule": "train band\u00d7MLT quantile 0.75; label is 1 at or above that cell threshold",
+    "train": {
+      "n": 176503,
+      "positive_rate": 0.25035268522348064,
+      "roc_auc": 0.8787987971345144,
+      "average_precision": 0.6905199547570918,
+      "brier": 0.14013145571090574
+    },
+    "holdout": {
+      "n": 828,
+      "positive_rate": 0.2669082125603865,
+      "roc_auc": 0.8813316734626939,
+      "average_precision": 0.7076857302524105,
+      "brier": 0.14750131975443972
+    },
+    "holdout_climatology": {
+      "constant_positive_rate": 0.25035268522348064,
+      "constant_brier": 0.19594230411360902,
+      "band_sector_brier": 0.19595678320802973,
+      "band_sector_roc_auc": 0.4461039009444863
+    }
+  },
+  "holdout_excess_above_cell_p75": {
+    "value": "y_excess_max",
+    "rule": "train band\u00d7MLT quantile 0.75; label is 1 at or above that cell threshold",
+    "train": {
+      "n": 176421,
+      "positive_rate": 0.2503386785019924,
+      "roc_auc": 0.8976800887808839,
+      "average_precision": 0.7344091357991781,
+      "brier": 0.12896229832020314
+    },
+    "holdout": {
+      "n": 828,
+      "positive_rate": 0.2669082125603865,
+      "roc_auc": 0.9064869136096968,
+      "average_precision": 0.7630719556544608,
+      "brier": 0.1375544714670365
+    },
+    "holdout_climatology": {
+      "constant_positive_rate": 0.2503386785019924,
+      "constant_brier": 0.19594276808711833,
+      "band_sector_brier": 0.19595395693720352,
+      "band_sector_roc_auc": 0.46372263263434893
+    }
+  },
+  "holdout_with_recent_dbdt": {
+    "features": [
+      "recent_dbdt_max_60",
+      "recent_band_max_60"
+    ],
+    "non_null_rate_train": {
+      "recent_dbdt_max_60": 0.917077896692974,
+      "recent_band_max_60": 0.9946573146065506
+    },
+    "holdout": {
+      "n": 828,
+      "positive_rate": 0.3526570048309179,
+      "mae_dbdt": 0.008256834204002281,
+      "roc_auc": 0.9786661725618483,
+      "average_precision": 0.9606483314372661,
+      "brier": 0.05350544592594965
+    },
+    "note": "Not saved. Serving is L1-only; these columns would be missing at predict time."
+  },
+  "earlier_storm_sensitivity": {
+    "storm": "storm_20251028T0738Z",
+    "n_train": 163258,
+    "n_holdout": 12809,
+    "holdout": {
+      "n": 12809,
+      "positive_rate": 0.34577250370833007,
+      "mae_dbdt": 0.010199385048150503,
+      "roc_auc": 0.9530032585190576,
+      "average_precision": 0.9040880378258523,
+      "brier": 0.08519152541243322
+    },
+    "holdout_climatology": {
+      "constant_positive_rate": 0.35254015117176496,
+      "constant_brier": 0.22625968043979228,
+      "band_sector_brier": 0.12439170340510529,
+      "band_sector_roc_auc": 0.8956587925858588,
+      "band_sector_mae": 0.020480834708311003
+    }
+  },
+  "residual_q10": -0.013309722243757652,
+  "residual_q90": 0.012859873320362558,
   "threshold": 0.05,
   "unit": "uT/s",
   "label_source": "swarm",
@@ -159,10 +254,12 @@
     "2026-09-27..2026-09-30 has Swarm but OMNI 1-minute high-res lags ~120 days (safe end before 2026-06-06 on this run date), so that block is excluded.",
     "Partial Swarm days kept: 2025-09-24, 2025-10-12, 2025-10-13 (2 of 3 satellites).",
     "Decision cadence is 15 min, not 5, so neighboring rows are less redundant.",
-    "Pdyn is recomputed only when density and speed are real. Features are trailing 30 and 60 min. No future L1.",
-    "Exceedance threshold is the code default 0.05 uT/s. On a 2025-07-01..04 probe the band-hour max exceeded 0.05 on about 34% of rows, so the cut is not saturated.",
-    "Sensitivity, not the saved split: holding out storm_20251028T0738Z (2025-10-28 07:45Z through 2025-11-03, n=12809) and training only on earlier rows gave hold-out AUC 0.911 vs band-sector climatology 0.896, Brier 0.123 vs 0.124, MAE 0.014 vs 0.020 uT/s."
+    "Pdyn is recomputed only when density and speed are real. Features are trailing 15, 30, 60, 120, and 180 min, plus clock sin/cos, IMF cone angle, Newell, an epsilon-style proxy, half-wave v*max(-Bz,0), and tau = L1_dist/v. No future L1.",
+    "Along-track spatial median (2 deg mlat x MLT sector) is fit on minutes before the last 10 days of the archive, then subtracted so y_excess_max is the temporal residual. The median is not a feature.",
+    "recent_dbdt_max_60 and recent_band_max_60 use magnetometer samples on [t-60min, t] only. They are scored as an ablation and are not in the saved L1 model.",
+    "Exceedance threshold is the code default 0.05 uT/s. On a 2025-07-01..04 probe the band-hour max exceeded 0.05 on about 34% of rows, so the cut is not saturated."
   ],
-  "leakage": "Features are trailing L1 only. Hold-out is one whole later storm. Segments after that storm are dropped.",
-  "min_hold_span": "0 days 06:00:00"
+  "leakage": "Features are trailing L1 only. Recent |dB/dt| used in the ablation ends at the decision and does not enter [t+30min, t+90min). The along-track median excludes the last 10 days of a long archive. Hold-out is one whole later storm. Segments after that storm are dropped. Cell quantiles for the residual head are fit on training rows only.",
+  "min_hold_span": "0 days 06:00:00",
+  "background_fit_before": "2025-10-25T23:59:00Z"
 }

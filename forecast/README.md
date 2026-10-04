@@ -25,7 +25,7 @@ python -m forecast.predict \
   --features forecast/examples/l1_decision_sample.parquet
 ```
 
-Swarm heatmap quantity instead of ground (marks ground labels MISSING; needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment, same as etl). The long run uses every Swarm day that OMNI high-res can cover. See the model card before reading the AUC.
+Swarm heatmap quantity instead of ground (marks ground labels MISSING; needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment, same as etl). The long run uses every Swarm day that OMNI high-res can cover. The saved model beats a band×MLT climatology on the held-out storm; read the model card before treating that as a ground forecast.
 
 ```bash
 python -m forecast.build_dataset --window 2025-10-10T00:00:00Z,2025-10-12T00:00:00Z \

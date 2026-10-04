@@ -62,8 +62,13 @@ COVERAGE_NOTES = [
     "(safe end before 2026-06-06 on this run date), so that block is excluded.",
     "Partial Swarm days kept: 2025-09-24, 2025-10-12, 2025-10-13 (2 of 3 satellites).",
     "Decision cadence is 15 min, not 5, so neighboring rows are less redundant.",
-    "Pdyn is recomputed only when density and speed are real. Features are trailing 30 and 60 min. "
+    "Pdyn is recomputed only when density and speed are real. Features are trailing 15, 30, 60, 120, and 180 min, "
+    "plus clock sin/cos, IMF cone angle, Newell, an epsilon-style proxy, half-wave v*max(-Bz,0), and tau = L1_dist/v. "
     "No future L1.",
+    "Along-track spatial median (2 deg mlat x MLT sector) is fit on minutes before the last 10 days of the archive, "
+    "then subtracted so y_excess_max is the temporal residual. The median is not a feature.",
+    "recent_dbdt_max_60 and recent_band_max_60 use magnetometer samples on [t-60min, t] only. "
+    "They are scored as an ablation and are not in the saved L1 model.",
     f"Exceedance threshold is the code default {SWARM_DBDT_THRESHOLD_UTPS} uT/s. "
     "On a 2025-07-01..04 probe the band-hour max exceeded 0.05 on about 34% of rows, "
     "so the cut is not saturated.",
@@ -244,6 +249,7 @@ def main() -> None:
         "supermag": "MISSING",
         "ground_labels": "MISSING",
         "positive_rate": float(table["y_exceed"].mean()),
+        "background_fit_before": table.attrs.get("background_fit_before"),
         "bands": sorted(table["mlat_band"].astype(str).unique()),
         "n_storm_segments": int((storms["storm_kind"] == "storm").sum()),
         "n_quiet_segments": int((storms["storm_kind"] == "quiet").sum()),

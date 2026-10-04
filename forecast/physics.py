@@ -101,6 +101,41 @@ def newell_proxy(speed, bt, clock) -> pd.Series:
     return proxy.where(s.notna() & b.notna() & th.notna())
 
 
+def cone_angle_rad(bx_gsm, bt) -> pd.Series:
+    """Angle between IMF and the GSM x axis (sunward). NaN if Bx or Bt is missing."""
+    bx_raw, b_raw = _align(bx_gsm, bt)
+    bx = mask_physical(bx_raw, abs_max=IMF_ABS_MAX_NT)
+    b = mask_physical(b_raw, abs_max=IMF_ABS_MAX_NT, min_valid=0.0)
+    ratio = (bx / b.where(b > 0)).clip(-1.0, 1.0)
+    ang = np.arccos(ratio.to_numpy(dtype=float))
+    out = pd.Series(ang, index=bx.index)
+    return out.where(bx.notna() & b.notna() & (b > 0))
+
+
+def epsilon_proxy(speed, bt, clock) -> pd.Series:
+    """Akasofu-style coupling without the l0^2 prefactor: v * Bt^2 * sin^4(|clock|/2).
+
+    NaN wherever speed, Bt, or clock is missing. The constant factor is irrelevant
+    to a tree split.
+    """
+    s_raw, b_raw = _align(speed, bt)
+    _, th_raw = _align(s_raw, clock)
+    s = mask_physical(s_raw, abs_max=SPEED_MAX_KMS, min_valid=SPEED_MIN_KMS)
+    b = mask_physical(b_raw, abs_max=IMF_ABS_MAX_NT, min_valid=0.0)
+    th = pd.to_numeric(th_raw, errors="coerce")
+    proxy = s * (b.clip(lower=0) ** 2) * (np.sin(np.abs(th) / 2.0) ** 4)
+    return proxy.where(s.notna() & b.notna() & th.notna())
+
+
+def half_wave_coupling(speed, bz_gsm) -> pd.Series:
+    """v * max(-Bz, 0). Zero is a real northward IMF, not a fill. NaN if either input is missing."""
+    s_raw, bz_raw = _align(speed, bz_gsm)
+    s = mask_physical(s_raw, abs_max=SPEED_MAX_KMS, min_valid=SPEED_MIN_KMS)
+    bz = mask_physical(bz_raw, abs_max=IMF_ABS_MAX_NT)
+    south = (-bz).clip(lower=0)
+    return (s * south).where(s.notna() & bz.notna())
+
+
 def _dipole_lat_lon_rad(lat_deg, lon_deg):
     lat = np.radians(np.asarray(lat_deg, dtype=float))
     lon = np.radians(np.asarray(lon_deg, dtype=float))
