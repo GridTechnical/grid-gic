@@ -21,44 +21,86 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 👇 REPLACE your old ingest step with THIS one
-      - name: Run Swarm ingest (fallback up to 10 days)
+      # OPER MAG LR lags ~4 days. Walk newest→oldest, ingest missing days
+      # (cap new downloads), and roll each window into swarm_l1m BEFORE
+      # the 7-day 1 Hz retention step. Stopping at the first success left
+      # gaps, and rollup_yesterday never sees a day still inside the lag.
+      - name: Run Swarm ingest and roll up (last 14 days)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           VIRES_TOKEN: ${{ secrets.VIRES_TOKEN }}
         run: |
-          set +e
-          for d in 1 2 3 4 5 6 7 8 9 10; do
+          set -euo pipefail
+          if [ -z "${VIRES_TOKEN:-}" ]; then
+            echo "VIRES_TOKEN repo secret is empty. Add it under Settings → Secrets and variables → Actions."
+            echo "Create the token at https://vires.services/ (ESA login → account / API token)."
+            exit 1
+          fi
+
+          new_days=0
+          max_new=4
+          rolled=0
+
+          for d in $(seq 1 14); do
             START=$(date -u -d "$d days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
             END=$(date -u -d "$((d-1)) days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
-            echo "Trying window: $START → $END"
-            START="$START" END="$END" python etl/ingest_swarm_test.py
-            rc=$?
-            if [ $rc -eq 0 ]; then
-              echo "Success: data ingested for $START → $END"
-              exit 0
-            elif [ $rc -eq 2 ]; then
-              echo "No data for that day; falling back a day…"
-              continue
-            else
-              echo "Transient error (rc=$rc). Retrying once…"
+            echo "Window: $START → $END"
+
+            has=$(curl -sS \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "Accept-Profile: geomag" \
+              "$SUPABASE_URL/rest/v1/swarm_l1b?select=ts&ts=gte.${START}&ts=lt.${END}&limit=1" \
+              || true)
+
+            need_fetch=1
+            case "$has" in
+              \[\{*) need_fetch=0; echo "1 Hz already stored; skip VirES" ;;
+            esac
+
+            if [ "$need_fetch" = "1" ]; then
+              if [ "$new_days" -ge "$max_new" ]; then
+                echo "Hit $max_new new days this run. Older gaps wait for the next run or geomag_backfill_range."
+                break
+              fi
+              set +e
               START="$START" END="$END" python etl/ingest_swarm_test.py
               rc=$?
-              if [ $rc -eq 0 ]; then
-                echo "Success after retry for $START → $END"
-                exit 0
-              elif [ $rc -eq 2 ]; then
-                echo "No data; falling back a day…"
-                continue
-              else
-                echo "Hard failure (rc=$rc). Falling back a day anyway…"
+              if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+                echo "Transient error (rc=$rc). Retrying once…"
+                START="$START" END="$END" python etl/ingest_swarm_test.py
+                rc=$?
+              fi
+              set -e
+              if [ "$rc" -eq 2 ]; then
+                echo "No VirES data for $START → $END"
                 continue
               fi
+              if [ "$rc" -ne 0 ]; then
+                echo "Ingest hard failure rc=$rc for $START → $END (not treating it as an empty day)."
+                exit "$rc"
+              fi
+              new_days=$((new_days+1))
             fi
+
+            echo "Rollup $START → $END"
+            curl -sS -f \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "Content-Profile: geomag" -H "Accept-Profile: geomag" \
+              -H "Content-Type: application/json" \
+              -X POST "$SUPABASE_URL/rest/v1/rpc/rollup_swarm_1hz_to_1m" \
+              -d "{\"start_ts\":\"${START}\",\"end_ts\":\"${END}\"}"
+            echo
+            rolled=$((rolled+1))
           done
-          echo "No Swarm data found in the last 10 days."
-          exit 1
+
+          echo "New days ingested: $new_days. Windows rolled up: $rolled."
+          if [ "$rolled" -eq 0 ]; then
+            echo "No Swarm data found in the last 14 days."
+            exit 1
+          fi
 
       # keep your retention step AFTER this
       - name: Retain only last 7 days at 1Hz (chunked + verbose)

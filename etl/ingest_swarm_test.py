@@ -43,8 +43,18 @@ class SupabaseREST:
             return
         self._warm_table(table)
 
+        def _json_safe(obj):
+            # PostgREST rejects Python json NaN/Infinity tokens
+            if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
+                return None
+            if isinstance(obj, dict):
+                return {k: _json_safe(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_json_safe(v) for v in obj]
+            return obj
+
         for i in range(0, len(records), batch_size):
-            chunk = records[i:i+batch_size]
+            chunk = _json_safe(records[i:i+batch_size])
             url = f"{self.base}/{table}?on_conflict={on_conflict}"
 
             # retry on transient network/503 for PostgREST cache warm-up
@@ -52,7 +62,7 @@ class SupabaseREST:
                 try:
                     r = self.session.post(
                         url, headers=self.headers,
-                        data=json.dumps(chunk, default=str),
+                        data=json.dumps(chunk, default=str, allow_nan=False),
                         timeout=180
                     )
                 except requests.RequestException as e:
@@ -167,23 +177,46 @@ def main():
     except Exception as e:
         print(f"[satellites] warning: {e} (continuing)")
         
+    if not os.environ.get("VIRES_TOKEN", "").strip():
+        print(
+            "VIRES_TOKEN is missing or empty. "
+            "Set GitHub Actions secret VIRES_TOKEN to an ESA VirES access token "
+            "(https://vires.services/ → log in → account token)."
+        )
+        raise SystemExit(1)
+
     total = 0
-    
+    errors = 0
+
     for coll in ["SW_OPER_MAGA_LR_1B", "SW_OPER_MAGB_LR_1B", "SW_OPER_MAGC_LR_1B"]:
         try:
             df = fetch_swarm_l1b(coll, START, END)
         except Exception as e:
-            print(f"[{coll}] error: {e}")
-            df = pd.DataFrame()
+            # Do not treat VirES/auth failures as an empty collection.
+            # Exit 2 is reserved for a genuine empty window so the workflow
+            # can walk back across the product lag. Real errors must fail.
+            errors += 1
+            print(f"[{coll}] error: {type(e).__name__}: {e}")
+            continue
 
         if not df.empty:
-            pg.upsert("swarm_l1b", df.to_dict(orient="records"), on_conflict="ts,sat_id")
-            print(f"[{coll}] rows: {len(df)}")
-            total += len(df)
+            before = len(df)
+            df = df.dropna(subset=["bn_ut", "be_ut", "bd_ut"])
+            dropped = before - len(df)
+            if dropped:
+                print(f"[{coll}] dropped {dropped} rows with null B components")
+            if df.empty:
+                print(f"[{coll}] no valid rows after null filter for {START} → {END}")
+            else:
+                pg.upsert("swarm_l1b", df.to_dict(orient="records"), on_conflict="ts,sat_id")
+                print(f"[{coll}] rows: {len(df)}")
+                total += len(df)
         else:
             print(f"[{coll}] no data for {START} → {END}")
 
-    print(f"DONE. total rows inserted: {total}")
+    print(f"DONE. total rows inserted: {total} errors: {errors}")
+    if total == 0 and errors:
+        raise SystemExit(1)
     if total == 0:
         raise SystemExit(2)
 

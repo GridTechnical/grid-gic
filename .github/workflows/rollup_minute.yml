@@ -7,15 +7,22 @@ jobs:
   rollup:
     runs-on: ubuntu-latest
     steps:
-      - name: Call rollup_yesterday RPC
+      - name: Roll up the last 14 days of Swarm 1 Hz
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          curl -sS \
+          set -euo pipefail
+          # OPER MAG LR is published ~4 days late, so rollup_yesterday
+          # (calendar yesterday only) never sees the day just ingested.
+          START=$(date -u -d "14 days ago 00:00" +'%Y-%m-%dT%H:%M:%SZ')
+          END=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo "Rollup $START → $END"
+          curl -sS -f \
             -H "apikey: $SUPABASE_SERVICE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
             -H "Content-Profile: geomag" -H "Accept-Profile: geomag" \
             -H "Content-Type: application/json" \
-            -X POST "$SUPABASE_URL/rest/v1/rpc/rollup_yesterday" \
-          | jq .
+            -X POST "$SUPABASE_URL/rest/v1/rpc/rollup_swarm_1hz_to_1m" \
+            -d "{\"start_ts\":\"$START\",\"end_ts\":\"$END\"}"
+          echo
