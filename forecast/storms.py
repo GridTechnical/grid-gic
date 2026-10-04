@@ -66,22 +66,41 @@ def assign_storm_ids(l1: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"storm_id": ids, "storm_kind": kinds}, index=l1.index)
 
 
-def train_holdout_ids(storms: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
+def train_holdout_ids(
+    storms: pd.DataFrame,
+    min_hold_span: pd.Timedelta | None = None,
+) -> tuple[list[str], list[str], list[str]]:
     """Earlier segments train. The latest active storm is the hold-out.
 
     Segments that start after the hold-out are dropped so training does not
     see the future of the hold-out storm. Returns (train_ids, holdout_ids, dropped_ids).
+
+    min_hold_span skips trailing active blips shorter than that span and holds
+    out the latest storm that actually lasts. Those short tail segments are
+    dropped with everything else that starts after the chosen storm.
     """
     if storms.empty:
         raise ValueError("no storms")
     tmp = storms.copy()
     tmp["t"] = tmp.index
     first = tmp.groupby("storm_id")["t"].min().sort_values()
+    last = tmp.groupby("storm_id")["t"].max()
     kinds = tmp.groupby("storm_id")["storm_kind"].first()
     active_ids = [i for i in first.index if kinds.loc[i] == "storm"]
     if len(active_ids) >= 1:
-        # Latest active storm by its start time.
-        hold = max(active_ids, key=lambda i: first.loc[i])
+        ordered = sorted(active_ids, key=lambda i: first.loc[i], reverse=True)
+        hold = None
+        if min_hold_span is not None:
+            for i in ordered:
+                if (last.loc[i] - first.loc[i]) >= min_hold_span:
+                    hold = i
+                    break
+            if hold is None:
+                raise ValueError(
+                    f"no active storm spans {min_hold_span}; longest trailing segments were too short"
+                )
+        else:
+            hold = ordered[0]
     else:
         if len(first) < 2:
             raise ValueError("need at least two segments, or one active storm plus other data")

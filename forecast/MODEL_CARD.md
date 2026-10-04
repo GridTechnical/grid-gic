@@ -62,7 +62,38 @@ Hold-out is the whole later active interval `storm_20251028T0738Z` (898 band-row
 
 The in-sample AUC is memorization of a few storms and two stations. The hold-out does not beat a constant forecast (climatology Brier would be about 0.25). This run checks the wiring. It is not a forecast to put on the map.
 
-Numbers are also in `forecast/artifacts/smoke_metrics.json`.
+Numbers are also in `forecast/artifacts/smoke_metrics.json`. The weights for that NRCan smoke fit are `forecast/artifacts/smoke_nrcan_hgb.joblib`. They are not the model `forecast.predict` loads by default.
+
+## Swarm long run (default artifact)
+
+`forecast/artifacts/band_dbdt_hgb.joblib` is this run, not the NRCan smoke. Ground labels are **MISSING**. SuperMAG is **MISSING**. Labels are Swarm `geomag.swarm_l1m` along-track max |dB/dt| in µT/s. Threshold 0.05 µT/s. Decisions every 15 minutes. Hold-out is the latest active segment that lasts at least 6 hours. A 15-minute blip at the end of 4 Nov (`storm_20251104T2251Z`) and the quiet segment after the hold-out were dropped so the test is not that blip.
+
+Swarm coverage queried 2026-10-04: `minute_ts` from 2025-07-01 00:00Z through 2026-09-30 23:59Z, 436,320 rows, 3 satellites, 102 days. Usable with OMNI high-res (the product lags ~120 days, so September 2026 Swarm is out):
+
+| window | joined rows |
+| --- | --- |
+| 2025-07-01 → 2025-07-31 | 54,640 |
+| 2025-08-27 → 2025-09-26 | 55,106 |
+| 2025-09-28 → 2025-11-05 | 68,318 |
+
+Holes with no Swarm minutes: 2025-07-31..2025-08-26, 2025-09-26..2025-09-27, 2025-11-05..2026-09-26. Partial days kept (2 of 3 satellites): 2025-09-24, 2025-10-12, 2025-10-13. OMNI minutes 141,120. Swarm samples 419,040. Joined rows 178,064. Positive rate about 0.35. Rebuild with `python -m forecast.build_long_swarm` (cache under gitignored `data/`).
+
+Official hold-out `storm_20251104T0411Z` (2025-11-04 04:15Z–14:00Z, 828 rows). Train 176,503 rows.
+
+| | train | hold-out | band×MLT climatology on the hold-out |
+| --- | --- | --- | --- |
+| positive rate | 0.35 | 0.35 | train rate by band and sector |
+| ROC AUC | 0.916 | **0.911** | **0.904** |
+| Brier | 0.120 | **0.122** | **0.120** |
+| MAE of max \|dB/dt\| | 0.014 µT/s | **0.014 µT/s** | **0.021 µT/s** |
+
+A constant forecast at the train positive rate has hold-out Brier 0.228. The classifier does **not** beat a lookup of how often each magnetic-latitude band and MLT sector exceeds 0.05 µT/s (AUC 0.911 vs 0.904, Brier 0.122 vs 0.120). South-polar and equatorial along-track |dB/dt| are hot in both train and this hold-out; that map is most of the AUC. The regressor does beat the same lookup (MAE 0.014 vs 0.021 µT/s).
+
+A second split, not the saved hold-out, leaves out the earlier long interval `storm_20251028T0738Z` (28 Oct–3 Nov, 12,809 rows) and trains only on data before it. Hold-out AUC 0.911 vs climatology 0.896, Brier 0.123 vs 0.124, MAE 0.014 vs 0.020 µT/s. Same pattern: a small regression gain, almost no probability skill beyond the orbital band map.
+
+This is not a forecast to put on the map. What would move it: ground |dB/dt| (a complete NRCan set, or SuperMAG once a user id exists), a Swarm label with the along-track spatial gradient taken out, and storms from another season. The archive does not have that season yet.
+
+Numbers are in `forecast/artifacts/swarm_long_metrics.json`.
 
 ## Live path
 

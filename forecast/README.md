@@ -25,11 +25,15 @@ python -m forecast.predict \
   --features forecast/examples/l1_decision_sample.parquet
 ```
 
-Swarm heatmap quantity instead of ground (marks ground labels MISSING; needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment, same as etl):
+Swarm heatmap quantity instead of ground (marks ground labels MISSING; needs `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment, same as etl). The long run uses every Swarm day that OMNI high-res can cover. See the model card before reading the AUC.
 
 ```bash
 python -m forecast.build_dataset --window 2025-10-10T00:00:00Z,2025-10-12T00:00:00Z \
   --labels swarm --out data/forecast/swarm.parquet
+
+python -m forecast.build_long_swarm
+python -m forecast.train --table data/forecast/swarm_long.parquet \
+  --metrics forecast/artifacts/swarm_long_metrics.json --min-hold-hours 6
 ```
 
 `forecast/examples/l1_decision_sample.parquet` is L1 features only, so predict runs without the gitignored table and without NRCan samples.

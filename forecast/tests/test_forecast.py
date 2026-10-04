@@ -112,6 +112,27 @@ class PhysicsTests(unittest.TestCase):
         train_times = storms.index[storms["storm_id"].isin(train)]
         self.assertLess(train_times.max(), hold_times.min())
 
+    def test_short_tail_is_not_the_holdout_when_a_minimum_span_is_set(self):
+        idx = pd.date_range("2025-07-01", periods=60 * 30, freq="1min", tz="UTC")
+        bz = np.zeros(len(idx))
+        # 4 h storm, 6 h quiet, 4 h storm, 6 h quiet, 20 min blip.
+        bz[0:240] = -8
+        bz[240 + 360 : 240 + 360 + 240] = -8
+        bz[-20:] = -8
+        df = pd.DataFrame({"bz_gsm": bz, "speed": 350.0, "pdyn_npa": 1.0}, index=idx)
+        storms = assign_storm_ids(df)
+        train, hold, dropped = train_holdout_ids(storms, min_hold_span=pd.Timedelta(hours=2))
+        self.assertEqual(len(hold), 1)
+        hold_times = storms.index[storms["storm_id"].isin(hold)]
+        self.assertGreaterEqual(hold_times.max() - hold_times.min(), pd.Timedelta(hours=2))
+        # The 20 min tail starts after the hold-out and is dropped, not trained.
+        tail_id = storms.iloc[-1]["storm_id"]
+        self.assertIn(tail_id, dropped)
+        self.assertNotIn(tail_id, train)
+        self.assertNotIn(tail_id, hold)
+        train_times = storms.index[storms["storm_id"].isin(train)]
+        self.assertLess(train_times.max(), hold_times.min())
+
     def test_ottawa_is_northern_not_equatorial(self):
         mlat = magnetic_latitude_deg([45.4], [-75.55])[0]
         self.assertGreater(mlat, 50.0)

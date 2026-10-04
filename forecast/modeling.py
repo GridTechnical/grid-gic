@@ -51,7 +51,14 @@ def _fit_models(train: pd.DataFrame):
     cat = [x.columns.get_loc(c) for c in CATEGORICAL_FEATURES]
     y_cls = train["y_exceed"].astype(int).to_numpy()
     y_reg = train["y_max_dbdt"].astype(float).to_numpy()
-    leaf = 20 if len(train) >= 400 else 8
+    # Larger leaves once the table is many storms, so the trees cannot memorize
+    # every 15-minute row. The two-storm smoke table stays on the small leaf.
+    if len(train) >= 80000:
+        leaf = 100
+    elif len(train) >= 400:
+        leaf = 20
+    else:
+        leaf = 8
     common = dict(
         max_depth=3,
         max_iter=200,
@@ -72,6 +79,41 @@ def _fit_models(train: pd.DataFrame):
     resid = y_reg - pred
     q10, q90 = np.nanquantile(resid, [0.1, 0.9])
     return clf, reg, float(q10), float(q90)
+
+
+def band_sector_climatology(train: pd.DataFrame, frame: pd.DataFrame) -> dict:
+    """Lookup of train exceedance rate and mean |dB/dt| by band and MLT sector.
+
+    Swarm along-track |dB/dt| is large in some bands even in quiet L1, so a
+    high AUC can be that map rather than a solar-wind forecast.
+    """
+    if frame.empty or train.empty:
+        return {}
+    y = frame["y_exceed"].astype(int).to_numpy()
+    y_reg = frame["y_max_dbdt"].astype(float).to_numpy()
+    p = float(train["y_exceed"].mean())
+    tr = train.assign(b=train["mlat_band"].astype(str), s=train["mlt_sector"].astype(str))
+    rate = tr.groupby(["b", "s"])["y_exceed"].mean()
+    mu = tr.groupby(["b", "s"])["y_max_dbdt"].mean()
+    fallback_mu = float(train["y_max_dbdt"].mean())
+    clim_p = []
+    clim_y = []
+    for b, s in zip(frame["mlat_band"].astype(str), frame["mlt_sector"].astype(str)):
+        key = (b, s)
+        clim_p.append(float(rate.loc[key]) if key in rate.index else p)
+        clim_y.append(float(mu.loc[key]) if key in mu.index else fallback_mu)
+    clim_p_a = np.asarray(clim_p, dtype=float)
+    clim_y_a = np.asarray(clim_y, dtype=float)
+    out = {
+        "constant_positive_rate": p,
+        "constant_brier": float(brier_score_loss(y, np.full(len(y), p))),
+        "band_sector_brier": float(brier_score_loss(y, clim_p_a)),
+        "band_sector_mae": float(mean_absolute_error(y_reg, clim_y_a)),
+        "band_sector_roc_auc": None,
+    }
+    if len(np.unique(y)) >= 2 and np.unique(np.round(clim_p_a, 6)).size >= 2:
+        out["band_sector_roc_auc"] = float(roc_auc_score(y, clim_p_a))
+    return out
 
 
 def _scores(clf, reg, frame: pd.DataFrame) -> dict:
@@ -101,12 +143,16 @@ def _scores(clf, reg, frame: pd.DataFrame) -> dict:
     return out
 
 
-def train_from_table(table: pd.DataFrame, meta: dict | None = None) -> dict:
+def train_from_table(
+    table: pd.DataFrame,
+    meta: dict | None = None,
+    min_hold_span: pd.Timedelta | None = None,
+) -> dict:
     table = encode_bands(table.dropna(subset=["y_max_dbdt", "y_exceed"]).copy())
     table["time"] = pd.to_datetime(table["time"], utc=True)
     storms = table[["storm_id", "storm_kind"]].copy()
     storms.index = table["time"]
-    train_ids, hold_ids, dropped = train_holdout_ids(storms)
+    train_ids, hold_ids, dropped = train_holdout_ids(storms, min_hold_span=min_hold_span)
     train = table[table["storm_id"].isin(train_ids)].copy()
     hold = table[table["storm_id"].isin(hold_ids)].copy()
     if train.empty or hold.empty:
@@ -122,6 +168,7 @@ def train_from_table(table: pd.DataFrame, meta: dict | None = None) -> dict:
         "n_holdout": int(len(hold)),
         "train": _scores(clf, reg, train),
         "holdout": _scores(clf, reg, hold),
+        "holdout_climatology": band_sector_climatology(train, hold),
         "residual_q10": q10,
         "residual_q90": q90,
         "threshold": meta.get("threshold") if meta else None,
@@ -129,6 +176,7 @@ def train_from_table(table: pd.DataFrame, meta: dict | None = None) -> dict:
         "label_source": meta.get("label_source") if meta else None,
         "notes": (meta or {}).get("notes", []),
         "leakage": "Features are trailing L1 only. Hold-out is one whole later storm. Segments after that storm are dropped.",
+        "min_hold_span": None if min_hold_span is None else str(min_hold_span),
     }
     bundle = {
         "classifier": clf,
@@ -145,13 +193,14 @@ def train_from_table(table: pd.DataFrame, meta: dict | None = None) -> dict:
     return {"bundle": bundle, "report": report}
 
 
-def save_bundle(bundle: dict, path: str) -> None:
+def save_bundle(bundle: dict, path: str, metrics_path: str | None = None) -> None:
     import joblib
 
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, out)
-    metrics = out.with_name("smoke_metrics.json")
+    # Default stays smoke_metrics.json so the two-storm NRCan command is unchanged.
+    metrics = Path(metrics_path) if metrics_path else out.with_name("smoke_metrics.json")
     metrics.write_text(json.dumps(bundle["meta"], indent=2))
     print(f"wrote {out}")
     print(f"wrote {metrics}")
