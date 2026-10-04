@@ -167,14 +167,27 @@ def main():
     except Exception as e:
         print(f"[satellites] warning: {e} (continuing)")
         
+    if not os.environ.get("VIRES_TOKEN", "").strip():
+        print(
+            "VIRES_TOKEN is missing or empty. "
+            "Set GitHub Actions secret VIRES_TOKEN to an ESA VirES access token "
+            "(https://vires.services/ → log in → account token)."
+        )
+        raise SystemExit(1)
+
     total = 0
-    
+    errors = 0
+
     for coll in ["SW_OPER_MAGA_LR_1B", "SW_OPER_MAGB_LR_1B", "SW_OPER_MAGC_LR_1B"]:
         try:
             df = fetch_swarm_l1b(coll, START, END)
         except Exception as e:
-            print(f"[{coll}] error: {e}")
-            df = pd.DataFrame()
+            # Do not treat VirES/auth failures as an empty collection.
+            # Exit 2 is reserved for a genuine empty window so the workflow
+            # can walk back across the product lag. Real errors must fail.
+            errors += 1
+            print(f"[{coll}] error: {type(e).__name__}: {e}")
+            continue
 
         if not df.empty:
             pg.upsert("swarm_l1b", df.to_dict(orient="records"), on_conflict="ts,sat_id")
@@ -183,7 +196,9 @@ def main():
         else:
             print(f"[{coll}] no data for {START} → {END}")
 
-    print(f"DONE. total rows inserted: {total}")
+    print(f"DONE. total rows inserted: {total} errors: {errors}")
+    if total == 0 and errors:
+        raise SystemExit(1)
     if total == 0:
         raise SystemExit(2)
 

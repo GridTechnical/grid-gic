@@ -6,8 +6,8 @@ GIC watch: L1 solar wind plus ESA Swarm magnetometer data, stored in Supabase, s
 
 - **Solar wind (every 10 min):** `etl/ingest_solar_wind.py` pulls NOAA SWPC RTSW 1-minute mag+plasma, derives coupling fields, upserts `public.solar_wind_minute`, and writes `docs/data/solar_wind_last6h.json` for the dashboard.
 - **Solar wind history (daily 02:10 UTC):** `etl/backfill_solar_wind.py` loads NASA OMNIWeb (lags ~120 days).
-- **Swarm (daily 04:37 UTC):** `etl/ingest_swarm_test.py` via VirES into `geomag.swarm_l1b`, then drops 1 Hz older than 7 days.
-- **Minute rollup (daily 06:10 UTC):** calls Supabase RPC `geomag.rollup_yesterday`.
+- **Swarm (daily 04:37 UTC):** `etl/ingest_swarm_test.py` via VirES into `geomag.swarm_l1b` for missing days in the last 14 (up to 4 new days per run). Each window is rolled into `geomag.swarm_l1m` with `rollup_swarm_1hz_to_1m`, then 1 Hz older than 7 days is dropped.
+- **Minute rollup (daily 06:10 UTC):** `rollup_swarm_1hz_to_1m` for the last 14 days. OPER MAG LR lags about 4 days, so `rollup_yesterday` alone does not advance the heatmap.
 
 ## Secrets (GitHub Actions)
 
