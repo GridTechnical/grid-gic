@@ -1,0 +1,50 @@
+{
+  "model": "sklearn.HistGradientBoosting",
+  "task": "P(mlat/MLT band max |dB/dt| exceeds threshold on [t+30min, t+90min)) plus expected |dB/dt|",
+  "train_storms": [
+    "quiet_20251010T0000Z",
+    "storm_20251010T0529Z",
+    "quiet_20251010T0635Z",
+    "quiet_20251010T1234Z",
+    "storm_20251011T0323Z",
+    "quiet_20251011T1420Z",
+    "storm_20251011T1915Z",
+    "quiet_20251013T0000Z",
+    "storm_20251028T0149Z",
+    "quiet_20251028T0426Z"
+  ],
+  "holdout_storms": [
+    "storm_20251028T0738Z"
+  ],
+  "dropped_future_storms": [],
+  "n_train": 2098,
+  "n_holdout": 898,
+  "train": {
+    "n": 2098,
+    "positive_rate": 0.24356530028598666,
+    "mae_dbdt": 0.03706007803739864,
+    "roc_auc": 0.9990899640794764,
+    "average_precision": 0.9958865001166427,
+    "brier": 0.00841482064728693
+  },
+  "holdout": {
+    "n": 898,
+    "positive_rate": 0.5623608017817372,
+    "mae_dbdt": 0.1334688694788469,
+    "roc_auc": 0.5528279545511803,
+    "average_precision": 0.5986188370453724,
+    "brier": 0.3399304685238931
+  },
+  "residual_q10": -0.057921542485670406,
+  "residual_q90": 0.060260063508040695,
+  "threshold": 0.3,
+  "unit": "nT/s",
+  "label_source": "nrcan",
+  "notes": [
+    "Ground labels: NRCan network C2, Canada only. Not a global grid.",
+    "SuperMAG: MISSING (download requires a registered user id; no new secret was added).",
+    "Threshold override: 0.15 nT/s",
+    "Smoke exceedance cut is 0.30 nT/s (18 nT/min). 0.15 nT/s was above threshold on ~95% of the Alert hold-out hour-bands, so it did not test discrimination."
+  ],
+  "leakage": "Features are trailing L1 only. Hold-out is one whole later storm. Segments after that storm are dropped."
+}

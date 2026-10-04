@@ -25,3 +25,8 @@ python etl/ingest_solar_wind.py         # also writes docs/data; upserts if env 
 ```
 
 Pages: `docs/index.html` (Solionyx heatmap) and `docs/risk.html` (GIC Watch).
+
+## Forecast (not on the heatmap yet)
+
+`forecast/` trains a first L1 → magnetic-latitude / MLT `|dB/dt|` model. It does not change the live solar-wind strip. See `forecast/README.md`.
+
