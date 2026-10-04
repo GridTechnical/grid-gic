@@ -288,7 +288,7 @@
 
       if (state.series.length) {
         const latest = state.series[state.series.length - 1];
-        updateCard(latest);
+        updateCard(cardSample(latest, state.series));
         drawSparkline(el.sparkBz, state.series.map(s => s.bz));
       }
     } catch (e) {
@@ -297,7 +297,45 @@
     }
   }
 
-  function toNum(x){ const v = Number(x); return Number.isFinite(v) ? v : null; }
+  // null must stay null. Number(null) === 0, which painted missing plasma as 0.0.
+  function toNum(x){
+    if (x == null || x === '') return null;
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  // n cm^-3, v km/s -> nPa. Same factor as etl/fetch_solar_wind.py PDYN_FACTOR.
+  const PDYN_FACTOR = 1.6726e-6;
+
+  function plasmaOk(v, n){
+    return Number.isFinite(v) && v > 0 && Number.isFinite(n) && n > 0;
+  }
+
+  function pdynFrom(n, v){
+    if (!plasmaOk(v, n)) return null;
+    return PDYN_FACTOR * n * v * v;
+  }
+
+  // RTSW mag often leads plasma by about a minute. Use the latest real
+  // speed and density (within 30 min) instead of showing that gap as zero.
+  function cardSample(sample, series){
+    if (!sample) return sample;
+    const limitMs = 30 * 60 * 1000;
+    let v = sample.v, n = sample.n;
+    if (!plasmaOk(v, n) && series && series.length && sample.t instanceof Date) {
+      const t = sample.t.getTime();
+      for (let i = series.length - 1; i >= 0; i--) {
+        const s = series[i];
+        if (!(s.t instanceof Date)) continue;
+        const dt = t - s.t.getTime();
+        if (dt < -60 * 1000) continue;
+        if (dt > limitMs) break;
+        if (plasmaOk(s.v, s.n)) { v = s.v; n = s.n; break; }
+      }
+    }
+    if (!plasmaOk(v, n)) { v = null; n = null; }
+    return { t: sample.t, bz: sample.bz, v, n, pdyn: pdynFrom(n, v) };
+  }
 
   // Binary search nearest by time from the loaded JSON series
   function nearestFromSeries(ts){
@@ -396,13 +434,13 @@
 
       if (inJsonWindow && state.series.length){
         const s = nearestFromSeries(ts);
-        if (s) updateCard(s);
+        if (s) updateCard(cardSample(s, state.series));
         // keep the JSON fresh in the background
         if (Date.now() - state.lastFetchTs > state.refreshMs) loadSolarWindRecent();
       } else {
         // Outside JSON coverage → go to the DB
         const s = await fetchNearestFromDB(ts);
-        if (s) updateCard(s);
+        if (s) updateCard(cardSample(s, state.series));
       }
     }
   };
