@@ -60,7 +60,7 @@ def upsert_dataframe(table: str, df: pd.DataFrame, chunk: int = 500):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     payload = _with_time_column(df)
     payload = payload.replace([np.inf, -np.inf], np.nan)
-    payload = payload.where(pd.notna(payload), None)
+    payload = payload.astype(object).where(pd.notna(payload), None)
     records = payload.to_dict(orient="records")
     print(f"Preparing to upsert {len(records)} records in chunks of {chunk}")
 
@@ -76,9 +76,9 @@ def write_pages_snapshot(df: pd.DataFrame, repo_root: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = _with_time_column(df)
     payload.to_csv(out_dir / "solar_wind_last6h.csv", index=False)
-    records = payload.replace([np.inf, -np.inf], np.nan).where(pd.notna(payload), None).to_dict(
-        orient="records"
-    )
+    clean = payload.replace([np.inf, -np.inf], np.nan)
+    # float columns keep NaN under .where(..., None); cast to object first
+    records = clean.astype(object).where(pd.notna(clean), None).to_dict(orient="records")
     with open(out_dir / "solar_wind_last6h.json", "w") as f:
         json.dump(records, f, allow_nan=False)
     print(f"Wrote {out_dir / 'solar_wind_last6h.csv'} and .json")
